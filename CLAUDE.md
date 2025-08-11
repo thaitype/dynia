@@ -27,6 +27,9 @@ Dynia is a lightweight, CLI-driven orchestrator for small clusters that provisio
 ### Release
 - `pnpm release` - Build, lint, test, version, and publish using changesets
 
+### Local CLI Testing
+- `pnpm --filter @examples/basic dynia` - Run the Dynia CLI in the basic example project (make sure cli is built first)
+
 ## Architecture
 
 ### Monorepo Structure

@@ -98,6 +98,24 @@ importers:
         specifier: ^3.0.9
         version: 3.1.1(@types/node@22.13.14)(@vitest/ui@3.0.9)(jiti@2.4.2)(jsdom@26.0.0)(yaml@2.7.1)
 
+  examples/basic:
+    devDependencies:
+      '@dynia/config-eslint':
+        specifier: workspace:*
+        version: link:../../configs/config-eslint
+      '@dynia/config-typescript':
+        specifier: workspace:*
+        version: link:../../configs/config-typescript
+      '@dynia/config-vitest':
+        specifier: workspace:*
+        version: link:../../configs/config-vitest
+      '@dynia/mono':
+        specifier: workspace:*
+        version: link:../../tools/mono
+      dynia:
+        specifier: workspace:*
+        version: link:../../packages/dynia
+
   packages/dynia:
     dependencies:
       '@thaitype/core-utils':
