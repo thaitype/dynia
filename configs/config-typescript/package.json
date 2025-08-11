@@ -1,0 +1,8 @@
+{
+  "name": "@dynia/config-typescript",
+  "private": true,
+  "version": "0.2.2",
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "name": "dynia",
+  "description": "A TypeScript framework for building reusable, type-safe Kubernetes infrastructure — without the YAML mess.",
+  "version": "0.20.1",
+  "type": "module",
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/dts/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "types": "./dist/dts/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "default": "./dist/cjs/index.js"
+    }
+  },
+  "bin": {
+    "dynia": "bin.mjs",
+    "kbr": "bin.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thaitype/dynia.git"
+  },
+  "homepage": "https://github.com/thaitype/dynia/tree/main/packages/dynia#readme",
+  "files": [
+    "bin.mjs",
+    "dist",
+    "src",
+    "package.json",
+    "README.md"
+  ],
+  "scripts": {
+    "dev": "mono dev",
+    "start": "mono start",
+    "build": "mono build",
+    "test": "mono test",
+    "test:watch": "mono test:watch",
+    "lint:check": "mono lint:check",
+    "lint:fix": "mono lint:fix",
+    "check-types": "mono check-types"
+  },
+  "devDependencies": {
+    "@dynia/config-eslint": "workspace:*",
+    "@dynia/config-typescript": "workspace:*",
+    "@dynia/config-vitest": "workspace:*",
+    "@dynia/mono": "workspace:*",
+    "@types/lodash-es": "^4.17.12",
+    "@types/node": "^22.13.9",
+    "@types/yargs": "^17.0.33"
+  },
+  "dependencies": {
+    "@thaitype/core-utils": "^1.1.1",
+    "ansis": "^3.17.0",
+    "execa": "^9.5.2",
+    "hotscript": "^1.0.13",
+    "lodash-es": "^4.17.21",
+    "unconfig": "^7.3.1",
+    "yaml": "^2.7.0",
+    "yargs": "^17.7.2",
+    "zod": "^3.24.2"
+  },
+  "keywords": [
+    "kubernetes",
+    "dynia",
+    "cli",
+    "typescript",
+    "framework",
+    "typesafe",
+    "secret-management",
+    "infrastructure-as-code"
+  ],
+  "license": "Apache-2.0"
+}
