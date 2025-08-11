@@ -8,7 +8,7 @@ import { version } from './version.js';
 // This is the main entry point for the CLI application.
 cliEntryPoint(process.argv, {
   version,
-  scriptName: 'kbr',
+  scriptName: 'dynia',
 }).catch(err => {
   handlerError(err, new ConsoleLogger('silent'), 99);
 });

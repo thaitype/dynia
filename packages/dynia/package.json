@@ -15,8 +15,7 @@
     }
   },
   "bin": {
-    "dynia": "bin.mjs",
-    "kbr": "bin.mjs"
+    "dynia": "bin.mjs"
   },
   "repository": {
     "type": "git",
