@@ -4,6 +4,7 @@
     "build": {
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
+      "env": ["DYNIA_DO_TOKEN", "DYNIA_CF_TOKEN", "DYNIA_CF_ZONE_ID", "DYNIA_CF_DOMAIN"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
     },
     "generate": {

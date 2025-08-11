@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { ConsoleLogger } from '@thaitype/core-utils';
 
 import { cliEntryPoint } from './cli-interfaces/entrypoint.js';

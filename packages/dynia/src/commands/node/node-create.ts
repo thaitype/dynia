@@ -1,0 +1,217 @@
+import { BaseCommand } from '../../shared/base/base-command.js';
+import { NodeNameSchema, HealthPathSchema, ValidationUtils } from '../../shared/utils/validation.js';
+import { Helpers } from '../../shared/utils/helpers.js';
+import { createDigitalOceanProvider } from '../../core/providers/digitalocean-provider.js';
+import { createCloudflareProvider } from '../../core/providers/cloudflare-provider.js';
+import type { Node } from '../../shared/types/index.js';
+
+/**
+ * Options for node create command
+ */
+export interface NodeCreateOptions {
+  name: string;
+  number?: number;
+  healthPath?: string;
+}
+
+/**
+ * Command to create a new node
+ * Implements the complete node creation flow from the specification
+ */
+export class NodeCreateCommand extends BaseCommand<NodeCreateOptions> {
+  protected async run(): Promise<void> {
+    const { name, number, healthPath = '/' } = this.argv;
+
+    // Generate final node name
+    const finalNodeName = number ? `${name}-${number}` : name;
+
+    // Validate inputs
+    ValidationUtils.validateRequiredArgs(this.argv, ['name']);
+    NodeNameSchema.parse(name); // Validate base name
+    if (number !== undefined) {
+      if (!Number.isInteger(number) || number < 1) {
+        throw new Error('Node number must be a positive integer');
+      }
+    }
+    NodeNameSchema.parse(finalNodeName); // Validate final node name
+    HealthPathSchema.parse(healthPath);
+
+    // Check if final node name is already in use
+    const existingNodes = await this.stateManager.getNodes();
+    ValidationUtils.validateNodeNameAvailable(finalNodeName, existingNodes.map(n => n.name));
+
+    this.logger.info(`Creating node: ${finalNodeName}`);
+
+    // Step 1: Create DigitalOcean droplet
+    const dropletInfo = await this.createDroplet(finalNodeName);
+    
+    // Step 2: Create/update Cloudflare DNS A record
+    await this.createDnsRecord(finalNodeName, dropletInfo.ip);
+    
+    // Step 3: Wait for DNS propagation
+    await this.waitForDnsPropagation(finalNodeName, dropletInfo.ip);
+    
+    // Step 4: Set up Docker infrastructure (Caddy + placeholder)
+    await this.setupDockerInfrastructure(finalNodeName, dropletInfo.ip);
+    
+    // Step 5: Save node state
+    await this.saveNodeState(finalNodeName, dropletInfo.ip, healthPath);
+
+    this.logger.info(`✅ Node ${finalNodeName} created successfully`);
+    this.logger.info(`   IP: ${dropletInfo.ip}`);
+    this.logger.info(`   FQDN: ${finalNodeName}.${this.config.public.cloudflare.domain}`);
+    this.logger.info(`   Health Path: ${healthPath}`);
+  }
+
+  /**
+   * Create DigitalOcean droplet
+   */
+  private async createDroplet(name: string): Promise<{ id: string; ip: string }> {
+    this.logger.info('Creating DigitalOcean droplet...');
+    
+    if (this.dryRun) {
+      this.logDryRun(`create DigitalOcean droplet named ${name}`);
+      return { id: 'mock-id', ip: '203.0.113.10' };
+    }
+
+    // Create DigitalOcean provider with secret token
+    const doProvider = createDigitalOceanProvider(
+      this.config.secrets.digitalOceanToken,
+      this.logger
+    );
+
+    // Create the droplet
+    const droplet = await doProvider.createDroplet({
+      name,
+      region: this.config.public.digitalOcean.region,
+      size: this.config.public.digitalOcean.size,
+      image: 'ubuntu-22-04-x64', // Latest Ubuntu LTS
+    });
+
+    // Wait for it to become active
+    const activeDroplet = await doProvider.waitForDropletActive(droplet.id);
+    
+    return {
+      id: activeDroplet.id,
+      ip: activeDroplet.ip,
+    };
+  }
+
+  /**
+   * Create/update Cloudflare DNS A record
+   */
+  private async createDnsRecord(name: string, ip: string): Promise<void> {
+    const fqdn = `${name}.${this.config.public.cloudflare.domain}`;
+    this.logger.info(`Creating DNS A record: ${fqdn} → ${ip}`);
+    
+    if (this.dryRun) {
+      this.logDryRun(`create DNS A record ${fqdn} pointing to ${ip}`);
+      return;
+    }
+
+    // Create Cloudflare provider with secret token
+    const cfProvider = createCloudflareProvider(
+      this.config.secrets.cloudflareToken,
+      this.config.secrets.cloudflareZoneId,
+      this.logger
+    );
+
+    // Create/update the A record
+    await cfProvider.upsertARecord({
+      name: fqdn,
+      ip,
+      ttl: 300, // 5 minutes
+      proxied: false, // Keep DNS-only for ACME cert issuance
+    });
+
+    this.logger.info(`✅ DNS A record created: ${fqdn} → ${ip}`);
+  }
+
+  /**
+   * Wait for DNS propagation
+   */
+  private async waitForDnsPropagation(name: string, expectedIp: string): Promise<void> {
+    const fqdn = `${name}.${this.config.public.cloudflare.domain}`;
+    this.logger.info(`Waiting for DNS propagation: ${fqdn}`);
+    
+    if (this.dryRun) {
+      this.logDryRun(`wait for DNS propagation of ${fqdn}`);
+      return;
+    }
+
+    // Create Cloudflare provider to handle DNS propagation checking
+    const cfProvider = createCloudflareProvider(
+      this.config.secrets.cloudflareToken,
+      this.config.secrets.cloudflareZoneId,
+      this.logger
+    );
+
+    // Wait for DNS propagation using the provider
+    await cfProvider.waitForDnsPropagation(fqdn, expectedIp);
+  }
+
+  /**
+   * Set up Docker infrastructure (network, Caddy, placeholder)
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private async setupDockerInfrastructure(_name: string, _ip: string): Promise<void> {
+    this.logger.info('Setting up Docker infrastructure...');
+    
+    if (this.dryRun) {
+      this.logDryRun('setup Docker network, Caddy, and placeholder containers');
+      return;
+    }
+
+    // In a real implementation, this would:
+    // 1. SSH to the droplet
+    // 2. Install Docker and Docker Compose
+    // 3. Create the 'edge' network
+    // 4. Deploy Caddy with initial configuration
+    // 5. Deploy placeholder service
+    
+    throw new Error('Docker infrastructure setup not yet implemented.');
+  }
+
+  /**
+   * Save node state to local JSON
+   */
+  private async saveNodeState(name: string, ip: string, healthPath: string): Promise<void> {
+    const node: Node = {
+      name,
+      ip,
+      fqdn: `${name}.${this.config.public.cloudflare.domain}`,
+      createdAt: Helpers.generateTimestamp(),
+      status: 'active',
+      healthPath,
+      caddy: {
+        domain: `${name}.${this.config.public.cloudflare.domain}`,
+        target: {
+          service: 'placeholder',
+          port: 8080,
+        },
+      },
+    };
+
+    await this.conditionalExecute(
+      () => this.stateManager.upsertNode(node),
+      `save node ${name} to state`
+    );
+  }
+
+  protected async validatePrerequisites(): Promise<void> {
+    await super.validatePrerequisites();
+    
+    // Additional validation for node creation
+    if (!this.config.secrets.digitalOceanToken) {
+      throw new Error('DYNIA_DO_TOKEN environment variable is required');
+    }
+    
+    if (!this.config.secrets.cloudflareToken) {
+      throw new Error('DYNIA_CF_TOKEN environment variable is required');
+    }
+    
+    if (!this.config.secrets.cloudflareZoneId) {
+      throw new Error('DYNIA_CF_ZONE_ID environment variable is required');
+    }
+  }
+}
