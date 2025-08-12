@@ -196,31 +196,14 @@ export class DigitalOceanProvider implements IDigitalOceanProvider {
   async assignReservedIp(reservedIpId: string, dropletId: string): Promise<void> {
     this.logger.info(`Assigning Reserved IP ${reservedIpId} to droplet ${dropletId}`);
 
-    const body = {
-      // resource_type: 'droplet',
-      droplet_id: parseInt(dropletId, 10), // DigitalOcean API expects numeric droplet ID
-    };
-
     await this.apiRequest('POST', `/reserved_ips/${reservedIpId}/actions`, {
       type: 'assign',
-      ...body,
+      droplet_id: parseInt(dropletId, 10), // DigitalOcean API expects numeric droplet ID
     });
 
     this.logger.info(`✅ Reserved IP ${reservedIpId} assigned to droplet ${dropletId}`);
   }
 
-  /**
-   * Unassign Reserved IP from current droplet
-   */
-  async unassignReservedIp(reservedIpId: string): Promise<void> {
-    this.logger.info(`Unassigning Reserved IP: ${reservedIpId}`);
-
-    await this.apiRequest('POST', `/reserved_ips/${reservedIpId}/actions`, {
-      type: 'unassign',
-    });
-
-    this.logger.info(`✅ Reserved IP ${reservedIpId} unassigned`);
-  }
 
 
   // VPC management

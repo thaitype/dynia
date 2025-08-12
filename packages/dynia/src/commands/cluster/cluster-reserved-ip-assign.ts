@@ -1,6 +1,7 @@
 import { BaseCommand } from '../../shared/base/base-command.js';
 import { ValidationUtils } from '../../shared/utils/validation.js';
 import { createDigitalOceanProvider } from '../../core/providers/digitalocean-provider.js';
+import { ReservedIpService } from '../../shared/services/reserved-ip-service.js';
 import type { ClusterNode } from '../../shared/types/index.js';
 
 export interface ClusterReservedIpAssignOptions {
@@ -33,19 +34,35 @@ export class ClusterReservedIpAssignCommand extends BaseCommand<ClusterReservedI
       throw new Error(`Node '${nodeId}' not found in cluster '${clusterName}'. Use 'dynia cluster node list ${clusterName}' to see available nodes.`);
     }
 
+    const doProvider = createDigitalOceanProvider(
+      this.config.secrets.digitalOceanToken,
+      this.logger
+    );
+    
+    const reservedIpService = new ReservedIpService(doProvider, this.logger);
+
     // Check if cluster already has a Reserved IP
     if (cluster.reservedIp && cluster.reservedIpId) {
       this.logger.info(`⚠️  Cluster already has Reserved IP: ${cluster.reservedIp}`);
       this.logger.info(`This will reassign it from current node to ${nodeId}`);
       
-      // Reassign existing Reserved IP to target node
-      await this.reassignExistingReservedIp(cluster.reservedIpId, targetNode, clusterName);
+      if (!this.dryRun) {
+        // Reassign existing Reserved IP to target node
+        await reservedIpService.reassignReservedIp(cluster.reservedIpId, targetNode.dropletId);
+      }
     } else {
-      // Try to find existing unassigned Reserved IP in region, or create new one
-      const reservedIpInfo = await this.findOrCreateReservedIp(cluster.region, targetNode.dropletId);
-      
-      // Update cluster state with new Reserved IP info
-      await this.updateClusterReservedIp(clusterName, reservedIpInfo);
+      // Use shared service to assign Reserved IP to target node
+      if (this.dryRun) {
+        this.logDryRun(`assign Reserved IP to droplet ${targetNode.dropletId} in region ${cluster.region}`);
+      } else {
+        const reservedIpInfo = await reservedIpService.assignReservedIpToDroplet(
+          targetNode.dropletId, 
+          cluster.region
+        );
+        
+        // Update cluster state with new Reserved IP info
+        await this.updateClusterReservedIp(clusterName, reservedIpInfo);
+      }
     }
 
     // Update target node to active and other nodes to standby
@@ -66,97 +83,6 @@ export class ClusterReservedIpAssignCommand extends BaseCommand<ClusterReservedI
     this.logger.info(`   3. Deploy services: dynia cluster deploy --name ${clusterName} --placeholder`);
   }
 
-  /**
-   * Find existing unassigned Reserved IP or create new one with droplet assignment
-   */
-  private async findOrCreateReservedIp(region: string, dropletId: string): Promise<{ id: string; ip: string }> {
-    this.logger.info(`Finding or creating Reserved IP in region ${region}...`);
-    
-    if (this.dryRun) {
-      this.logDryRun(`find available Reserved IP in ${region} or create new with droplet ${dropletId}`);
-      return { id: 'mock-reserved-ip', ip: '203.0.113.100' };
-    }
-
-    const doProvider = createDigitalOceanProvider(
-      this.config.secrets.digitalOceanToken,
-      this.logger
-    );
-
-    // First, try to find existing unassigned Reserved IP in the region
-    try {
-      const availableReservedIps = await this.findAvailableReservedIps(region);
-      
-      if (availableReservedIps.length > 0) {
-        const existingIp = availableReservedIps[0];
-        this.logger.info(`Found existing unassigned Reserved IP: ${existingIp.ip}`);
-        
-        // Assign it to the droplet
-        await doProvider.assignReservedIp(existingIp.id, dropletId);
-        this.logger.info(`✅ Assigned existing Reserved IP ${existingIp.ip} to droplet ${dropletId}`);
-        
-        return existingIp;
-      }
-    } catch (error) {
-      this.logger.warn(`Could not find available Reserved IPs: ${error}`);
-      this.logger.info('Will create new Reserved IP instead...');
-    }
-
-    // No available Reserved IP found, create new one with immediate assignment
-    this.logger.info('Creating new Reserved IP with immediate droplet assignment...');
-    const reservedIp = await doProvider.createReservedIpWithDroplet(dropletId, region);
-    this.logger.info(`✅ Created new Reserved IP: ${reservedIp.ip} (${reservedIp.id})`);
-    
-    return reservedIp;
-  }
-
-  /**
-   * Find available (unassigned) Reserved IPs in a region
-   */
-  private async findAvailableReservedIps(region: string): Promise<{ id: string; ip: string }[]> {
-    const doProvider = createDigitalOceanProvider(
-      this.config.secrets.digitalOceanToken,
-      this.logger
-    );
-
-    const allReservedIps = await doProvider.listReservedIps();
-    
-    // Filter for IPs in the correct region that are not assigned to any droplet
-    const availableIps = allReservedIps.filter(ip => 
-      ip.region === region && !ip.dropletId
-    );
-
-    return availableIps;
-  }
-
-  /**
-   * Reassign existing Reserved IP to target node
-   */
-  private async reassignExistingReservedIp(
-    reservedIpId: string, 
-    targetNode: ClusterNode, 
-    clusterName: string
-  ): Promise<void> {
-    this.logger.info(`Reassigning Reserved IP ${reservedIpId} to node ${targetNode.twoWordId}...`);
-    
-    if (this.dryRun) {
-      this.logDryRun(`reassign Reserved IP ${reservedIpId} to droplet ${targetNode.dropletId}`);
-      return;
-    }
-
-    const doProvider = createDigitalOceanProvider(
-      this.config.secrets.digitalOceanToken,
-      this.logger
-    );
-
-    // Reassign Reserved IP to target node
-    await doProvider.assignReservedIp(reservedIpId, targetNode.dropletId);
-    
-    // Wait a moment for the reassignment to take effect
-    this.logger.info('Waiting for Reserved IP reassignment to propagate...');
-    await new Promise(resolve => setTimeout(resolve, 5000));
-    
-    this.logger.info(`✅ Reserved IP ${reservedIpId} reassigned to node ${targetNode.twoWordId}`);
-  }
 
   /**
    * Update cluster state with Reserved IP information

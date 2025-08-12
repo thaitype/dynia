@@ -4,6 +4,7 @@ import { Helpers } from '../../shared/utils/helpers.js';
 import { TwoWordNameGenerator } from '../../shared/utils/two-word-generator.js';
 import { createDigitalOceanProvider } from '../../core/providers/digitalocean-provider.js';
 import { createCloudflareProvider } from '../../core/providers/cloudflare-provider.js';
+import { ReservedIpService } from '../../shared/services/reserved-ip-service.js';
 import type { Cluster, ClusterNode } from '../../shared/types/index.js';
 
 /**
@@ -59,8 +60,8 @@ export class ClusterCreateHaCommand extends BaseCommand<ClusterCreateHaOptions> 
     // Step 3: Create first droplet
     const dropletInfo = await this.createFirstNode(name, firstNodeId, region, size, vpcInfo.id);
     
-    // Step 4: Create Reserved IP with immediate droplet assignment (atomic operation)
-    const reservedIpInfo = await this.createReservedIpWithDroplet(dropletInfo.id, region);
+    // Step 4: Assign Reserved IP to droplet using shared service
+    const reservedIpInfo = await this.assignReservedIpToDroplet(dropletInfo.id, region);
     
     // Step 5: Save cluster state
     const cluster: Cluster = {
@@ -136,13 +137,13 @@ export class ClusterCreateHaCommand extends BaseCommand<ClusterCreateHaOptions> 
   }
 
   /**
-   * Create Reserved IP with immediate droplet assignment (atomic operation)
+   * Assign Reserved IP to droplet using shared service logic
    */
-  private async createReservedIpWithDroplet(dropletId: string, region: string): Promise<{ id: string; ip: string }> {
-    this.logger.info('Creating Reserved IP with immediate droplet assignment...');
+  private async assignReservedIpToDroplet(dropletId: string, region: string): Promise<{ id: string; ip: string }> {
+    this.logger.info('Assigning Reserved IP to first cluster node...');
     
     if (this.dryRun) {
-      this.logDryRun(`create Reserved IP with immediate assignment to droplet ${dropletId} in region ${region}`);
+      this.logDryRun(`assign Reserved IP to droplet ${dropletId} in region ${region}`);
       return { id: 'mock-reserved-ip', ip: '203.0.113.100' };
     }
 
@@ -151,10 +152,10 @@ export class ClusterCreateHaCommand extends BaseCommand<ClusterCreateHaOptions> 
       this.logger
     );
 
-    const reservedIp = await doProvider.createReservedIpWithDroplet(dropletId, region);
-    this.logger.info(`✅ Reserved IP created and assigned: ${reservedIp.ip} (${reservedIp.id})`);
+    const reservedIpService = new ReservedIpService(doProvider, this.logger);
+    const reservedIpInfo = await reservedIpService.assignReservedIpToDroplet(dropletId, region);
     
-    return reservedIp;
+    return reservedIpInfo;
   }
 
   /**

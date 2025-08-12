@@ -103,34 +103,14 @@ export interface IDigitalOceanProvider {
   createReservedIp(region: string): Promise<ReservedIpInfo>;
 
   /**
-   * Create a new Reserved IP and assign it to a droplet atomically
-   */
-  createReservedIpWithDroplet(dropletId: string, region: string): Promise<ReservedIpInfo>;
-
-  /**
    * List all Reserved IPs
    */
   listReservedIps(): Promise<ReservedIpInfo[]>;
 
   /**
-   * Get Reserved IP information by ID
-   */
-  getReservedIp(reservedIpId: string): Promise<ReservedIpInfo>;
-
-  /**
    * Assign Reserved IP to a droplet
    */
   assignReservedIp(reservedIpId: string, dropletId: string): Promise<void>;
-
-  /**
-   * Unassign Reserved IP from current droplet
-   */
-  unassignReservedIp(reservedIpId: string): Promise<void>;
-
-  /**
-   * Delete Reserved IP
-   */
-  deleteReservedIp(reservedIpId: string): Promise<void>;
 
   // VPC management
 
