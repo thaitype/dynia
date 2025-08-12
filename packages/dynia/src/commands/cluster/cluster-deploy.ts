@@ -143,7 +143,46 @@ export class ClusterDeployCommand extends BaseCommand<ClusterDeployOptions> {
       await infrastructure.deployCustomService(composePath!, domain, healthPath);
     }
 
+    // Generate complete Caddyfile based on all cluster routes (including the new one)
+    await this.regenerateCompleteCaddyfile(activeNode, domain, healthPath);
+
     this.logger.info(`✅ Service deployed to node ${activeNode.twoWordId}`);
+  }
+
+  /**
+   * Regenerate complete Caddyfile based on all cluster routes
+   */
+  private async regenerateCompleteCaddyfile(
+    activeNode: any,
+    newDomain: string,
+    newHealthPath: string
+  ): Promise<void> {
+    this.logger.info('Regenerating complete Caddyfile configuration...');
+
+    // Get all routes for this cluster
+    const clusterRoutes = await this.stateManager.getClusterRoutes(activeNode.clusterId);
+
+    // Create simplified routes array for Caddyfile generation
+    const caddyRoutes = clusterRoutes.map((route: any) => ({
+      host: route.host,
+      healthPath: route.healthPath
+    }));
+
+    // Add the current deployment route (in case it's not saved to state yet)
+    const existingRoute = caddyRoutes.find((r: any) => r.host === newDomain);
+    if (!existingRoute) {
+      caddyRoutes.push({host: newDomain, healthPath: newHealthPath});
+    }
+
+    // Generate complete Caddyfile on the active node
+    const infrastructure = new DockerInfrastructure(
+      activeNode.publicIp,
+      activeNode.twoWordId,
+      newDomain, // domain parameter (not used in the new method)
+      this.logger
+    );
+
+    await infrastructure.generateCompleteCaddyfile(caddyRoutes);
   }
 
   /**
