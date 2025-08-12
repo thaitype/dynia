@@ -115,12 +115,17 @@ export type ClusterNode = z.infer<typeof ClusterNodeSchema>;
 export const RouteSchema = z.object({
   host: z.string(), // e.g., "api.example.com"
   clusterId: z.string(),
-  serviceRef: z.string(), // docker service name
-  port: z.number().int().min(1).max(65535),
+  serviceRef: z.string().optional(), // docker service name (optional for placeholder)
+  port: z.number().int().min(1).max(65535).optional(),
   healthPath: z.string().default('/healthz'),
   proxied: z.boolean().default(true), // Cloudflare proxy enabled
   tlsEnabled: z.boolean().default(true),
-  deployedAt: z.string().datetime(),
+  isPlaceholder: z.boolean().default(false), // Is this a placeholder service
+  composePath: z.string().optional(), // Path to docker-compose file for custom services
+  createdAt: z.string().datetime().optional(),
+  updatedAt: z.string().datetime().optional(),
+  // Keep deployedAt for backward compatibility
+  deployedAt: z.string().datetime().optional(),
 });
 export type Route = z.infer<typeof RouteSchema>;
 

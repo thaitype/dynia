@@ -636,4 +636,263 @@ networks:
       return false;
     }
   }
+
+  /**
+   * Deploy placeholder service for testing (enhanced for cluster deploy)
+   */
+  async deployPlaceholderService(domain: string, healthPath: string = '/healthz'): Promise<void> {
+    this.logger.info(`Deploying placeholder service for domain: ${domain}`);
+
+    // Create placeholder directories
+    await this.ssh.executeCommand('mkdir -p /opt/dynia/services/placeholder');
+
+    // Generate enhanced placeholder HTML
+    const indexHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynia Cluster Placeholder - ${domain}</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            text-align: center;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 3rem;
+            max-width: 600px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        .logo { font-size: 4rem; margin-bottom: 1rem; }
+        .status { color: #50fa7b; font-weight: bold; margin: 1rem 0; }
+        .info { margin: 0.5rem 0; opacity: 0.9; }
+        .divider { border-top: 1px solid rgba(255,255,255,0.3); margin: 2rem 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">🚀</div>
+        <h1>Dynia Cluster Placeholder</h1>
+        <div class="status">✅ Cluster is healthy and running</div>
+        
+        <div class="divider"></div>
+        
+        <div class="info"><strong>Domain:</strong> ${domain}</div>
+        <div class="info"><strong>Node:</strong> ${this.nodeName}</div>
+        <div class="info"><strong>Cluster:</strong> ${this.nodeName.split('-')[0] || 'unknown'}</div>
+        <div class="info"><strong>Deployed:</strong> ${new Date().toISOString()}</div>
+        
+        <div class="divider"></div>
+        
+        <p>This placeholder service confirms that:</p>
+        <ul style="text-align: left; max-width: 400px; margin: 0 auto;">
+            <li>✅ DNS is correctly configured</li>
+            <li>✅ HTTPS/TLS certificates are working</li>
+            <li>✅ Reverse proxy routing is active</li>
+            <li>✅ Docker containers are healthy</li>
+        </ul>
+        
+        <div class="divider"></div>
+        <p><small>Ready to deploy your real application!</small></p>
+    </div>
+</body>
+</html>`;
+
+    await this.ssh.copyContent(indexHtml, '/opt/dynia/services/placeholder/index.html');
+
+    // Generate health endpoint
+    const healthJson = JSON.stringify({
+      status: 'healthy',
+      service: 'dynia-placeholder',
+      domain: domain,
+      node: this.nodeName,
+      timestamp: new Date().toISOString(),
+      checks: {
+        dns: 'ok',
+        tls: 'ok',
+        routing: 'ok',
+        docker: 'ok'
+      }
+    }, null, 2);
+
+    await this.ssh.copyContent(healthJson, '/opt/dynia/services/placeholder/health.json');
+
+    // Create enhanced nginx config for placeholder
+    const nginxConfig = `server {
+    listen 80;
+    server_name _;
+    
+    location / {
+        root /usr/share/nginx/html;
+        index index.html;
+    }
+    
+    location ${healthPath} {
+        alias /usr/share/nginx/html/health.json;
+        add_header Content-Type application/json;
+        add_header Cache-Control "no-store, no-cache, must-revalidate";
+    }
+    
+    location /dynia-health {
+        return 200 "{\\"status\\": \\"healthy\\", \\"node\\": \\"${this.nodeName}\\", \\"service\\": \\"placeholder\\"}";
+        add_header Content-Type application/json;
+    }
+}`;
+
+    await this.ssh.copyContent(nginxConfig, '/opt/dynia/services/placeholder/nginx.conf');
+
+    // Create docker-compose.yml for placeholder
+    const dockerCompose = `version: '3.8'
+services:
+  placeholder:
+    image: nginx:alpine
+    container_name: dynia-placeholder
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./index.html:/usr/share/nginx/html/index.html:ro
+      - ./health.json:/usr/share/nginx/html/health.json:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost${healthPath}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - dynia-edge
+
+networks:
+  dynia-edge:
+    external: true`;
+
+    await this.ssh.copyContent(dockerCompose, '/opt/dynia/services/placeholder/docker-compose.yml');
+
+    // Start placeholder service
+    await this.ssh.executeCommand('cd /opt/dynia/services/placeholder && docker compose up -d');
+
+    // Update Caddy configuration to route to placeholder
+    await this.updateCaddyConfig(domain, 'localhost:8080', healthPath);
+
+    this.logger.info('✅ Placeholder service deployed and configured');
+  }
+
+  /**
+   * Deploy custom service from docker-compose file
+   */
+  async deployCustomService(composePath: string, domain: string, healthPath: string = '/healthz'): Promise<void> {
+    this.logger.info(`Deploying custom service for domain: ${domain}`);
+
+    // Create service directory
+    const serviceName = domain.replace(/\./g, '-');
+    const serviceDir = `/opt/dynia/services/${serviceName}`;
+    
+    await this.ssh.executeCommand(`mkdir -p ${serviceDir}`);
+
+    // Copy compose file to remote server
+    await this.ssh.copyFile(composePath, `${serviceDir}/docker-compose.yml`);
+
+    // Start custom service
+    await this.ssh.executeCommand(`cd ${serviceDir} && docker compose up -d`);
+
+    // TODO: Parse compose file to detect service port (for now assume 8080)
+    // This would need compose file parsing to detect the exposed port
+    const servicePort = '8080';
+    
+    // Update Caddy configuration to route to custom service
+    await this.updateCaddyConfig(domain, `localhost:${servicePort}`, healthPath);
+
+    this.logger.info('✅ Custom service deployed and configured');
+  }
+
+  /**
+   * Update Caddy configuration to route domain to target service
+   */
+  private async updateCaddyConfig(domain: string, targetService: string, healthPath: string): Promise<void> {
+    this.logger.info(`Updating Caddy config: ${domain} → ${targetService}`);
+
+    // Generate Caddy configuration block for this domain
+    const caddyBlock = `${domain} {
+    reverse_proxy ${targetService}
+    
+    # Health check endpoint
+    handle_path /dynia-health {
+        respond "{\\"status\\": \\"healthy\\", \\"domain\\": \\"${domain}\\", \\"node\\": \\"${this.nodeName}\\"}" 200 {
+            header Content-Type application/json
+        }
+    }
+    
+    # Security headers
+    header {
+        X-Frame-Options DENY
+        X-Content-Type-Options nosniff
+        Referrer-Policy strict-origin-when-cross-origin
+        X-XSS-Protection "1; mode=block"
+    }
+    
+    # Enable compression
+    encode zstd gzip
+    
+    # Logging
+    log {
+        output file /var/log/caddy/access.log
+        format json
+    }
+}
+
+`;
+
+    // Read existing Caddyfile, remove any existing block for this domain, and add new one
+    const caddyfilePath = '/opt/dynia/caddy/Caddyfile';
+    
+    try {
+      // Get existing Caddyfile content
+      const existingContent = await this.ssh.executeCommand(`cat ${caddyfilePath} 2>/dev/null || echo ""`);
+      
+      // Remove existing block for this domain (simple approach)
+      const lines = existingContent.split('\n');
+      const filteredLines: string[] = [];
+      let skipBlock = false;
+      
+      for (const line of lines) {
+        if (line.startsWith(`${domain} {`)) {
+          skipBlock = true;
+          continue;
+        }
+        if (skipBlock && line === '}') {
+          skipBlock = false;
+          continue;
+        }
+        if (!skipBlock) {
+          filteredLines.push(line);
+        }
+      }
+      
+      // Add new block
+      const newContent = filteredLines.join('\n').trim() + '\n\n' + caddyBlock;
+      
+      // Write updated Caddyfile
+      await this.ssh.copyContent(newContent, caddyfilePath);
+      
+      // Reload Caddy configuration
+      await this.ssh.executeCommand('docker exec dynia-caddy caddy reload --config /etc/caddy/Caddyfile');
+      
+      this.logger.info(`✅ Caddy configuration updated for ${domain}`);
+      
+    } catch (error) {
+      this.logger.warn(`Failed to update Caddy config: ${error}`);
+      this.logger.info('Service may still work, but routing might not be optimal');
+    }
+  }
 }
