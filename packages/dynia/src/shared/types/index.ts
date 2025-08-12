@@ -6,14 +6,14 @@ import { z } from 'zod';
  * Node status in the cluster
  */
 export const NodeStatus = z.enum([
-  'active',           // Fully operational
-  'inactive',         // Stopped/disabled
-  'provisioning',     // Generic provisioning (backward compatibility)
-  'failed',          // Creation or operation failed
+  'active', // Fully operational
+  'inactive', // Stopped/disabled
+  'provisioning', // Generic provisioning (backward compatibility)
+  'failed', // Creation or operation failed
   // Progressive creation states
-  'droplet-created',     // DigitalOcean droplet created
-  'dns-configured',      // Cloudflare DNS record created
-  'dns-ready',          // DNS propagation verified
+  'droplet-created', // DigitalOcean droplet created
+  'dns-configured', // Cloudflare DNS record created
+  'dns-ready', // DNS propagation verified
   'infrastructure-ready', // Docker infrastructure deployed
 ]);
 export type NodeStatus = z.infer<typeof NodeStatus>;

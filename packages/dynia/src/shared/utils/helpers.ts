@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+
 import { merge } from 'lodash-es';
 
 /**
@@ -40,12 +41,7 @@ export class Helpers {
       description?: string;
     } = {}
   ): Promise<T> {
-    const {
-      maxAttempts = 3,
-      baseDelay = 1000,
-      maxDelay = 30000,
-      description = 'operation'
-    } = options;
+    const { maxAttempts = 3, baseDelay = 1000, maxDelay = 30000, description = 'operation' } = options;
 
     let lastError: Error | undefined;
 
@@ -54,7 +50,7 @@ export class Helpers {
         return await operation();
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
-        
+
         if (attempt === maxAttempts) {
           break; // Don't wait after the last attempt
         }
@@ -82,7 +78,7 @@ export class Helpers {
     const {
       timeout = 120000, // 2 minutes
       interval = 2000, // 2 seconds
-      description = 'condition'
+      description = 'condition',
     } = options;
 
     const startTime = Date.now();
@@ -126,17 +122,17 @@ export class Helpers {
    */
   static parseKeyValuePairs(input: string): Record<string, string> {
     if (!input.trim()) return {};
-    
+
     const pairs: Record<string, string> = {};
     const items = input.split(',');
-    
+
     for (const item of items) {
       const [key, ...valueParts] = item.split('=');
       if (key && valueParts.length > 0) {
         pairs[key.trim()] = valueParts.join('=').trim();
       }
     }
-    
+
     return pairs;
   }
 

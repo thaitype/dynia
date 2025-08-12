@@ -1,7 +1,7 @@
-import { z } from 'zod';
 import type { ILogger } from '@thaitype/core-utils';
+import { z } from 'zod';
 
-import type { SecretConfig, PublicConfig, RuntimeConfig } from '../../shared/types/index.js';
+import type { PublicConfig, RuntimeConfig, SecretConfig } from '../../shared/types/index.js';
 
 /**
  * Schema for validating required environment variables
@@ -19,7 +19,7 @@ const SecretConfigSchema = z.object({
 const SecretConfigSchemaOptionalSSH = z.object({
   digitalOceanToken: z.string().min(1, 'DYNIA_DO_TOKEN is required'),
   cloudflareToken: z.string().optional(),
-  cloudflareZoneId: z.string().optional(), 
+  cloudflareZoneId: z.string().optional(),
   sshKeyId: z.string().optional(),
 });
 
@@ -71,7 +71,7 @@ export class ConfigLoader {
 
         throw new Error(
           `Missing required environment variables:\n${missingVars.map(v => `  - ${v}`).join('\n')}\n\n` +
-          'Please set these environment variables before running Dynia.'
+            'Please set these environment variables before running Dynia.'
         );
       }
       throw error;
@@ -91,7 +91,7 @@ export class ConfigLoader {
       };
 
       const parsed = SecretConfigSchemaOptionalSSH.parse(secrets);
-      
+
       // Ensure all required fields for SecretConfig interface exist
       return {
         digitalOceanToken: parsed.digitalOceanToken,
@@ -109,7 +109,7 @@ export class ConfigLoader {
 
         throw new Error(
           `Missing required environment variables for SSH command:\n${missingVars.map(v => `  - ${v}`).join('\n')}\n\n` +
-          'Please set these environment variables before running SSH commands.'
+            'Please set these environment variables before running SSH commands.'
         );
       }
       throw error;
@@ -122,14 +122,14 @@ export class ConfigLoader {
   private loadPublicConfig(): PublicConfig {
     // Start with defaults and allow overrides for non-sensitive config
     const config = { ...DEFAULT_PUBLIC_CONFIG };
-    
+
     // Only override domain if provided, since it's often project-specific
     if (process.env.DYNIA_CF_DOMAIN) {
       config.cloudflare.domain = process.env.DYNIA_CF_DOMAIN;
     }
 
     this.logger.debug(`Using config: region=${config.digitalOcean.region}, size=${config.digitalOcean.size}`);
-    
+
     return config;
   }
 
@@ -138,12 +138,12 @@ export class ConfigLoader {
    */
   loadConfig(): RuntimeConfig {
     this.logger.debug('Loading configuration...');
-    
+
     const secrets = this.loadSecrets();
     const publicConfig = this.loadPublicConfig();
 
     this.logger.debug('Configuration loaded successfully');
-    
+
     return {
       secrets,
       public: publicConfig,
@@ -155,12 +155,12 @@ export class ConfigLoader {
    */
   loadConfigWithOptionalSSHKey(): RuntimeConfig {
     this.logger.debug('Loading configuration with optional SSH key...');
-    
+
     const secrets = this.loadSecretsWithOptionalSSHKey();
     const publicConfig = this.loadPublicConfig();
 
     this.logger.debug('Configuration loaded successfully');
-    
+
     return {
       secrets,
       public: publicConfig,
@@ -184,7 +184,7 @@ export class ConfigLoader {
       cloudflareZoneId: 'DYNIA_CF_ZONE_ID',
       sshKeyId: 'DYNIA_SSH_KEY_ID',
     };
-    
+
     return mapping[field] || field;
   }
 
@@ -199,11 +199,6 @@ export class ConfigLoader {
    * Get list of required environment variables
    */
   static getRequiredEnvVars(): string[] {
-    return [
-      'DYNIA_DO_TOKEN',
-      'DYNIA_CF_TOKEN', 
-      'DYNIA_CF_ZONE_ID',
-      'DYNIA_SSH_KEY_ID',
-    ];
+    return ['DYNIA_DO_TOKEN', 'DYNIA_CF_TOKEN', 'DYNIA_CF_ZONE_ID', 'DYNIA_SSH_KEY_ID'];
   }
 }

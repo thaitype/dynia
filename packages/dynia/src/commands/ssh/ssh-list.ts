@@ -1,5 +1,5 @@
-import { BaseCommand } from '../../shared/base/base-command.js';
 import { createDigitalOceanProvider } from '../../core/providers/digitalocean-provider.js';
+import { BaseCommand } from '../../shared/base/base-command.js';
 
 /**
  * Options for SSH list command
@@ -21,10 +21,7 @@ export class SSHListCommand extends BaseCommand<SSHListOptions> {
       return;
     }
 
-    const doProvider = createDigitalOceanProvider(
-      this.config.secrets.digitalOceanToken,
-      this.logger
-    );
+    const doProvider = createDigitalOceanProvider(this.config.secrets.digitalOceanToken, this.logger);
 
     const sshKeys = await doProvider.listSSHKeys();
 
@@ -53,7 +50,7 @@ export class SSHListCommand extends BaseCommand<SSHListOptions> {
     if (configuredKeyId) {
       this.logger.info('');
       this.logger.info(`Current DYNIA_SSH_KEY_ID: ${configuredKeyId}`);
-      
+
       const currentKey = sshKeys.find(key => key.id === configuredKeyId || key.fingerprint === configuredKeyId);
       if (currentKey) {
         this.logger.info(`✅ Configured key found: ${currentKey.name}`);
@@ -73,25 +70,25 @@ export class SSHListCommand extends BaseCommand<SSHListOptions> {
     if (publicKey.length <= 50) {
       return publicKey;
     }
-    
+
     const parts = publicKey.split(' ');
     if (parts.length >= 2) {
       const keyType = parts[0]; // ssh-rsa, ssh-ed25519, etc.
       const keyData = parts[1];
       const comment = parts.slice(2).join(' ');
-      
+
       if (keyData.length > 20) {
         const truncated = `${keyData.substring(0, 20)}...${keyData.slice(-10)}`;
         return `${keyType} ${truncated}${comment ? ` ${comment}` : ''}`;
       }
     }
-    
+
     return `${publicKey.substring(0, 50)}...`;
   }
 
   protected async validatePrerequisites(): Promise<void> {
     await super.validatePrerequisites();
-    
+
     if (!this.config.secrets.digitalOceanToken) {
       throw new Error('DYNIA_DO_TOKEN environment variable is required to list SSH keys');
     }

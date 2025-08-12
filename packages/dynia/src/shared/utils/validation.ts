@@ -7,26 +7,31 @@ import { z } from 'zod';
 /**
  * Validate node name format
  */
-export const NodeNameSchema = z.string()
+export const NodeNameSchema = z
+  .string()
   .min(1, 'Node name cannot be empty')
   .max(63, 'Node name cannot exceed 63 characters')
-  .regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/, 
+  .regex(
+    /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/,
     'Node name must start and end with alphanumeric characters and contain only lowercase letters, numbers, and hyphens'
   );
 
 /**
  * Validate domain name format
  */
-export const DomainSchema = z.string()
+export const DomainSchema = z
+  .string()
   .min(1, 'Domain cannot be empty')
-  .regex(/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/, 
+  .regex(
+    /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/,
     'Invalid domain format'
   );
 
 /**
  * Validate health path format
  */
-export const HealthPathSchema = z.string()
+export const HealthPathSchema = z
+  .string()
   .min(1, 'Health path cannot be empty')
   .regex(/^\/.*$/, 'Health path must start with /')
   .max(255, 'Health path cannot exceed 255 characters');
@@ -34,7 +39,8 @@ export const HealthPathSchema = z.string()
 /**
  * Validate file path format
  */
-export const FilePathSchema = z.string()
+export const FilePathSchema = z
+  .string()
   .min(1, 'File path cannot be empty')
   .refine(path => !path.includes('..'), 'File path cannot contain ".."')
   .refine(path => path.length <= 4096, 'File path too long');
@@ -55,14 +61,11 @@ export class ValidationUtils {
   /**
    * Validate required CLI arguments are present
    */
-  static validateRequiredArgs<T extends Record<string, unknown>>(
-    args: T,
-    requiredFields: (keyof T)[]
-  ): void {
-    const missing = requiredFields.filter(field => 
-      args[field] === undefined || args[field] === null || args[field] === ''
+  static validateRequiredArgs<T extends Record<string, unknown>>(args: T, requiredFields: (keyof T)[]): void {
+    const missing = requiredFields.filter(
+      field => args[field] === undefined || args[field] === null || args[field] === ''
     );
-    
+
     if (missing.length > 0) {
       throw new Error(`Missing required arguments: ${missing.join(', ')}`);
     }

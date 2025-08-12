@@ -1,10 +1,10 @@
-import { BaseCommand } from '../../shared/base/base-command.js';
-import { NodeNameSchema, HealthPathSchema, ValidationUtils } from '../../shared/utils/validation.js';
-import { Helpers } from '../../shared/utils/helpers.js';
-import { DockerInfrastructure } from '../../shared/utils/docker-infrastructure.js';
-import { createDigitalOceanProvider } from '../../core/providers/digitalocean-provider.js';
 import { createCloudflareProvider } from '../../core/providers/cloudflare-provider.js';
+import { createDigitalOceanProvider } from '../../core/providers/digitalocean-provider.js';
+import { BaseCommand } from '../../shared/base/base-command.js';
 import type { Node } from '../../shared/types/index.js';
+import { DockerInfrastructure } from '../../shared/utils/docker-infrastructure.js';
+import { Helpers } from '../../shared/utils/helpers.js';
+import { HealthPathSchema, NodeNameSchema, ValidationUtils } from '../../shared/utils/validation.js';
 
 /**
  * Options for node create command
@@ -39,26 +39,29 @@ export class NodeCreateCommand extends BaseCommand<NodeCreateOptions> {
 
     // Check if final node name is already in use
     const existingNodes = await this.stateManager.getNodes();
-    ValidationUtils.validateNodeNameAvailable(finalNodeName, existingNodes.map(n => n.name));
+    ValidationUtils.validateNodeNameAvailable(
+      finalNodeName,
+      existingNodes.map(n => n.name)
+    );
 
     this.logger.info(`Creating node: ${finalNodeName}`);
 
     // Step 1: Create DigitalOcean droplet
     const dropletInfo = await this.createDroplet(finalNodeName);
     await this.saveProgressiveNodeState(finalNodeName, dropletInfo.ip, healthPath, 'droplet-created');
-    
+
     // Step 2: Create/update Cloudflare DNS A record
     await this.createDnsRecord(finalNodeName, dropletInfo.ip);
     await this.saveProgressiveNodeState(finalNodeName, dropletInfo.ip, healthPath, 'dns-configured');
-    
+
     // Step 3: Wait for DNS propagation
     await this.waitForDnsPropagation(finalNodeName, dropletInfo.ip);
     await this.saveProgressiveNodeState(finalNodeName, dropletInfo.ip, healthPath, 'dns-ready');
-    
+
     // Step 4: Set up Docker infrastructure (Caddy + placeholder)
     await this.setupDockerInfrastructure(finalNodeName, dropletInfo.ip);
     await this.saveProgressiveNodeState(finalNodeName, dropletInfo.ip, healthPath, 'infrastructure-ready');
-    
+
     // Step 5: Final state update
     await this.saveProgressiveNodeState(finalNodeName, dropletInfo.ip, healthPath, 'active');
 
@@ -73,17 +76,14 @@ export class NodeCreateCommand extends BaseCommand<NodeCreateOptions> {
    */
   private async createDroplet(name: string): Promise<{ id: string; ip: string }> {
     this.logger.info('Creating DigitalOcean droplet...');
-    
+
     if (this.dryRun) {
       this.logDryRun(`create DigitalOcean droplet named ${name}`);
       return { id: 'mock-id', ip: '203.0.113.10' };
     }
 
     // Create DigitalOcean provider with secret token
-    const doProvider = createDigitalOceanProvider(
-      this.config.secrets.digitalOceanToken,
-      this.logger
-    );
+    const doProvider = createDigitalOceanProvider(this.config.secrets.digitalOceanToken, this.logger);
 
     // Create the droplet
     const droplet = await doProvider.createDroplet({
@@ -96,7 +96,7 @@ export class NodeCreateCommand extends BaseCommand<NodeCreateOptions> {
 
     // Wait for it to become active
     const activeDroplet = await doProvider.waitForDropletActive(droplet.id);
-    
+
     return {
       id: activeDroplet.id,
       ip: activeDroplet.ip,
@@ -109,7 +109,7 @@ export class NodeCreateCommand extends BaseCommand<NodeCreateOptions> {
   private async createDnsRecord(name: string, ip: string): Promise<void> {
     const fqdn = `${name}.${this.config.public.cloudflare.domain}`;
     this.logger.info(`Creating DNS A record: ${fqdn} → ${ip}`);
-    
+
     if (this.dryRun) {
       this.logDryRun(`create DNS A record ${fqdn} pointing to ${ip}`);
       return;
@@ -139,7 +139,7 @@ export class NodeCreateCommand extends BaseCommand<NodeCreateOptions> {
   private async waitForDnsPropagation(name: string, expectedIp: string): Promise<void> {
     const fqdn = `${name}.${this.config.public.cloudflare.domain}`;
     this.logger.info(`Checking DNS propagation: ${fqdn}`);
-    
+
     if (this.dryRun) {
       this.logDryRun(`check DNS propagation of ${fqdn}`);
       return;
@@ -167,18 +167,13 @@ export class NodeCreateCommand extends BaseCommand<NodeCreateOptions> {
    */
   private async setupDockerInfrastructure(name: string, ip: string): Promise<void> {
     this.logger.info('Setting up Docker infrastructure...');
-    
+
     if (this.dryRun) {
       this.logDryRun('setup Docker network, Caddy, and placeholder containers');
       return;
     }
 
-    const infrastructure = new DockerInfrastructure(
-      ip,
-      name,
-      this.config.public.cloudflare.domain,
-      this.logger
-    );
+    const infrastructure = new DockerInfrastructure(ip, name, this.config.public.cloudflare.domain, this.logger);
 
     // Deploy complete infrastructure
     await infrastructure.setupInfrastructure();
@@ -188,7 +183,7 @@ export class NodeCreateCommand extends BaseCommand<NodeCreateOptions> {
     if (!healthCheck) {
       throw new Error('Infrastructure health check failed after deployment');
     }
-    
+
     this.logger.info('✅ Infrastructure health check passed - node is fully operational');
   }
 
@@ -196,15 +191,15 @@ export class NodeCreateCommand extends BaseCommand<NodeCreateOptions> {
    * Save progressive node state during creation
    */
   private async saveProgressiveNodeState(
-    name: string, 
-    ip: string, 
-    healthPath: string, 
+    name: string,
+    ip: string,
+    healthPath: string,
     status: 'droplet-created' | 'dns-configured' | 'dns-ready' | 'infrastructure-ready' | 'active'
   ): Promise<void> {
     // Check if node already exists to preserve createdAt timestamp
     const existingNodes = await this.stateManager.getNodes();
     const existingNode = existingNodes.find(n => n.name === name);
-    
+
     const node: Node = {
       name,
       ip,
@@ -225,26 +220,26 @@ export class NodeCreateCommand extends BaseCommand<NodeCreateOptions> {
       () => this.stateManager.upsertNode(node),
       `save node ${name} to state (status: ${status})`
     );
-    
+
     this.logger.info(`💾 Node state saved: ${status}`);
   }
 
   protected async validatePrerequisites(): Promise<void> {
     await super.validatePrerequisites();
-    
+
     // Additional validation for node creation
     if (!this.config.secrets.digitalOceanToken) {
       throw new Error('DYNIA_DO_TOKEN environment variable is required');
     }
-    
+
     if (!this.config.secrets.cloudflareToken) {
       throw new Error('DYNIA_CF_TOKEN environment variable is required');
     }
-    
+
     if (!this.config.secrets.cloudflareZoneId) {
       throw new Error('DYNIA_CF_ZONE_ID environment variable is required');
     }
-    
+
     if (!this.config.secrets.sshKeyId) {
       throw new Error('DYNIA_SSH_KEY_ID environment variable is required');
     }

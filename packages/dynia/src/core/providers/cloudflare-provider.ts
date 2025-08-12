@@ -1,7 +1,7 @@
 import type { ILogger } from '@thaitype/core-utils';
 
-import type { ICloudflareProvider, DnsRecord } from './interfaces.js';
 import { Helpers } from '../../shared/utils/helpers.js';
+import type { DnsRecord, ICloudflareProvider } from './interfaces.js';
 
 /**
  * Cloudflare provider implementation using Cloudflare API v4
@@ -16,7 +16,7 @@ export class CloudflareProvider implements ICloudflareProvider {
     private readonly logger: ILogger
   ) {
     this.headers = {
-      'Authorization': `Bearer ${this.token}`,
+      Authorization: `Bearer ${this.token}`,
       'Content-Type': 'application/json',
     };
   }
@@ -24,12 +24,7 @@ export class CloudflareProvider implements ICloudflareProvider {
   /**
    * Create or update an A record
    */
-  async upsertARecord(options: {
-    name: string;
-    ip: string;
-    ttl?: number;
-    proxied?: boolean;
-  }): Promise<DnsRecord> {
+  async upsertARecord(options: { name: string; ip: string; ttl?: number; proxied?: boolean }): Promise<DnsRecord> {
     const { name, ip, ttl = 300, proxied = false } = options;
     this.logger.info(`Upserting DNS A record: ${name} → ${ip}`);
 
@@ -63,8 +58,11 @@ export class CloudflareProvider implements ICloudflareProvider {
   async getDnsRecord(name: string): Promise<DnsRecord | null> {
     this.logger.debug(`Looking up DNS record: ${name}`);
 
-    const response = await this.apiRequest('GET', `/zones/${this.zoneId}/dns_records?type=A&name=${encodeURIComponent(name)}`);
-    
+    const response = await this.apiRequest(
+      'GET',
+      `/zones/${this.zoneId}/dns_records?type=A&name=${encodeURIComponent(name)}`
+    );
+
     if (response.result && response.result.length > 0) {
       return this.mapDnsRecordResponse(response.result[0]);
     }
@@ -89,12 +87,10 @@ export class CloudflareProvider implements ICloudflareProvider {
     this.logger.info(`Waiting for DNS propagation: ${fqdn} → ${expectedIp}`);
 
     const resolvers = ['1.1.1.1', '8.8.8.8'];
-    
+
     await Helpers.waitFor(
       async () => {
-        const results = await Promise.allSettled(
-          resolvers.map(resolver => this.queryDnsResolver(fqdn, resolver))
-        );
+        const results = await Promise.allSettled(resolvers.map(resolver => this.queryDnsResolver(fqdn, resolver)));
 
         const resolved = results
           .filter((result): result is PromiseFulfilledResult<string> => result.status === 'fulfilled')
@@ -103,8 +99,7 @@ export class CloudflareProvider implements ICloudflareProvider {
         this.logger.debug(`DNS resolution results: ${resolved.join(', ')}`);
 
         // All resolvers should return the expected IP
-        return resolved.length === resolvers.length && 
-               resolved.every(ip => ip === expectedIp);
+        return resolved.length === resolvers.length && resolved.every(ip => ip === expectedIp);
       },
       {
         timeout: timeoutMs,
@@ -141,13 +136,16 @@ export class CloudflareProvider implements ICloudflareProvider {
   /**
    * Update an existing DNS record
    */
-  private async updateDnsRecord(recordId: string, recordData: {
-    type: string;
-    name: string;
-    content: string;
-    ttl: number;
-    proxied: boolean;
-  }): Promise<DnsRecord> {
+  private async updateDnsRecord(
+    recordId: string,
+    recordData: {
+      type: string;
+      name: string;
+      content: string;
+      ttl: number;
+      proxied: boolean;
+    }
+  ): Promise<DnsRecord> {
     const response = await this.apiRequest('PUT', `/zones/${this.zoneId}/dns_records/${recordId}`, recordData);
     return this.mapDnsRecordResponse(response.result);
   }
@@ -158,10 +156,10 @@ export class CloudflareProvider implements ICloudflareProvider {
   private async queryDnsResolver(fqdn: string, resolver: string): Promise<string> {
     // Use DNS over HTTPS (DoH) to query the resolver
     const dohUrl = `https://${resolver}/dns-query?name=${encodeURIComponent(fqdn)}&type=A`;
-    
+
     const response = await fetch(dohUrl, {
       headers: {
-        'Accept': 'application/dns-json',
+        Accept: 'application/dns-json',
       },
     });
 
@@ -170,7 +168,7 @@ export class CloudflareProvider implements ICloudflareProvider {
     }
 
     const data = await response.json();
-    
+
     if (data.Answer && data.Answer.length > 0) {
       // Return the first A record
       const aRecord = data.Answer.find((answer: { type: number }) => answer.type === 1);
@@ -189,10 +187,10 @@ export class CloudflareProvider implements ICloudflareProvider {
     method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     endpoint: string,
     body?: unknown
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ): Promise<{ result?: any; success?: boolean; errors?: Array<{ message: string }> }> {
     const url = `${this.baseUrl}${endpoint}`;
-    
+
     this.logger.debug(`CF API: ${method} ${endpoint}`);
 
     const response = await fetch(url, {
@@ -205,7 +203,7 @@ export class CloudflareProvider implements ICloudflareProvider {
 
     if (!response.ok || !responseData.success) {
       let errorMessage = `Cloudflare API error: ${response.status}`;
-      
+
       if (responseData.errors && responseData.errors.length > 0) {
         errorMessage += ` - ${responseData.errors.map((e: { message: string }) => e.message).join(', ')}`;
       }
@@ -235,10 +233,6 @@ export class CloudflareProvider implements ICloudflareProvider {
 /**
  * Factory function to create Cloudflare provider
  */
-export function createCloudflareProvider(
-  token: string,
-  zoneId: string,
-  logger: ILogger
-): ICloudflareProvider {
+export function createCloudflareProvider(token: string, zoneId: string, logger: ILogger): ICloudflareProvider {
   return new CloudflareProvider(token, zoneId, logger);
 }

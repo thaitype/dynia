@@ -58,10 +58,7 @@ export interface IDigitalOceanProvider {
   /**
    * Create SSH key in DigitalOcean account
    */
-  createSSHKey(options: {
-    name: string;
-    publicKey: string;
-  }): Promise<SSHKeyInfo>;
+  createSSHKey(options: { name: string; publicKey: string }): Promise<SSHKeyInfo>;
 
   /**
    * List SSH keys in DigitalOcean account
@@ -98,12 +95,7 @@ export interface ICloudflareProvider {
   /**
    * Create or update an A record
    */
-  upsertARecord(options: {
-    name: string;
-    ip: string;
-    ttl?: number;
-    proxied?: boolean;
-  }): Promise<DnsRecord>;
+  upsertARecord(options: { name: string; ip: string; ttl?: number; proxied?: boolean }): Promise<DnsRecord>;
 
   /**
    * Get DNS record by name
@@ -123,10 +115,7 @@ export interface ICloudflareProvider {
   /**
    * Deploy Cloudflare Worker with origins
    */
-  deployWorker(options: {
-    scriptName: string;
-    origins: string[];
-  }): Promise<void>;
+  deployWorker(options: { scriptName: string; origins: string[] }): Promise<void>;
 }
 
 /**
@@ -155,10 +144,13 @@ export interface IDockerProvider {
   /**
    * Execute docker-compose command
    */
-  composeUp(composeFile: string, options?: {
-    detach?: boolean;
-    pull?: boolean;
-  }): Promise<void>;
+  composeUp(
+    composeFile: string,
+    options?: {
+      detach?: boolean;
+      pull?: boolean;
+    }
+  ): Promise<void>;
 
   /**
    * Stop and remove containers
@@ -208,17 +200,23 @@ export interface IHealthProvider {
   /**
    * Check HTTP endpoint health
    */
-  checkHttp(url: string, options?: {
-    timeout?: number;
-    expectedStatus?: number[];
-  }): Promise<HealthCheckResult>;
+  checkHttp(
+    url: string,
+    options?: {
+      timeout?: number;
+      expectedStatus?: number[];
+    }
+  ): Promise<HealthCheckResult>;
 
   /**
    * Check health with retries
    */
-  checkHealthWithRetries(url: string, options?: {
-    maxAttempts?: number;
-    retryDelay?: number;
-    timeout?: number;
-  }): Promise<HealthCheckResult>;
+  checkHealthWithRetries(
+    url: string,
+    options?: {
+      maxAttempts?: number;
+      retryDelay?: number;
+      timeout?: number;
+    }
+  ): Promise<HealthCheckResult>;
 }

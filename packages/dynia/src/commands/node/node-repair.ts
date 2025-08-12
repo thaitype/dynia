@@ -1,10 +1,10 @@
-import { BaseCommand } from '../../shared/base/base-command.js';
-import { NodeNameSchema, ValidationUtils } from '../../shared/utils/validation.js';
-import { InfrastructureChecker } from '../../shared/utils/infrastructure-checker.js';
-import { DockerInfrastructure } from '../../shared/utils/docker-infrastructure.js';
 import { createCloudflareProvider } from '../../core/providers/cloudflare-provider.js';
-import { Helpers } from '../../shared/utils/helpers.js';
+import { BaseCommand } from '../../shared/base/base-command.js';
 import type { Node } from '../../shared/types/index.js';
+import { DockerInfrastructure } from '../../shared/utils/docker-infrastructure.js';
+import { Helpers } from '../../shared/utils/helpers.js';
+import { InfrastructureChecker } from '../../shared/utils/infrastructure-checker.js';
+import { NodeNameSchema, ValidationUtils } from '../../shared/utils/validation.js';
 
 /**
  * Options for node repair command
@@ -32,7 +32,7 @@ export class NodeRepairCommand extends BaseCommand<NodeRepairOptions> {
     // Get node from state
     const existingNodes = await this.stateManager.getNodes();
     const node = existingNodes.find(n => n.name === name);
-    
+
     if (!node) {
       throw new Error(`Node '${name}' not found in state. Use 'dynia node create' first.`);
     }
@@ -43,7 +43,7 @@ export class NodeRepairCommand extends BaseCommand<NodeRepairOptions> {
         nodeName: node.name,
         nodeIp: node.ip,
         domain: this.config.public.cloudflare.domain,
-        healthPath: node.healthPath
+        healthPath: node.healthPath,
       },
       this.logger
     );
@@ -60,13 +60,13 @@ export class NodeRepairCommand extends BaseCommand<NodeRepairOptions> {
     if (!state.sshConnectable) {
       throw new Error(
         `Cannot connect to node ${name} via SSH at ${node.ip}. ` +
-        'Check if the VM is running and SSH key is configured correctly.'
+          'Check if the VM is running and SSH key is configured correctly.'
       );
     }
 
     // Determine what needs repair
     const repairPlan = this.createRepairPlan(state, node);
-    
+
     if (repairPlan.length === 0) {
       this.logger.info(`✅ Node ${name} infrastructure is healthy - no repairs needed`);
       return;
@@ -92,7 +92,7 @@ export class NodeRepairCommand extends BaseCommand<NodeRepairOptions> {
 
     if (finalState.errors.length === 0) {
       this.logger.info(`✅ Node ${name} repair completed successfully`);
-      
+
       // Update node status to active if all checks pass
       await this.updateNodeStatusToActive(node);
     } else {
@@ -115,7 +115,7 @@ export class NodeRepairCommand extends BaseCommand<NodeRepairOptions> {
     this.logger.info(`  Caddy Running: ${state.caddyRunning ? '✅' : '❌'}`);
     this.logger.info(`  Placeholder Running: ${state.placeholderRunning ? '✅' : '❌'}`);
     this.logger.info(`  HTTPS Accessible: ${state.httpsAccessible ? '✅' : '❌'}`);
-    
+
     if (state.errors.length > 0) {
       this.logger.info(`\nIssues found:`);
       state.errors.forEach((error: string) => {
@@ -134,35 +134,35 @@ export class NodeRepairCommand extends BaseCommand<NodeRepairOptions> {
     if (!state.dockerInstalled) {
       plan.push({
         type: 'install-docker',
-        description: 'Install Docker and Docker Compose'
+        description: 'Install Docker and Docker Compose',
       });
     }
 
     if (state.dockerInstalled && !state.edgeNetworkExists) {
       plan.push({
         type: 'create-network',
-        description: 'Create Docker edge network'
+        description: 'Create Docker edge network',
       });
     }
 
     if (state.dockerInstalled && !state.caddyRunning) {
       plan.push({
         type: 'deploy-caddy',
-        description: 'Deploy and start Caddy service'
+        description: 'Deploy and start Caddy service',
       });
     }
 
     if (state.dockerInstalled && !state.placeholderRunning) {
       plan.push({
         type: 'deploy-placeholder',
-        description: 'Deploy and start placeholder service'
+        description: 'Deploy and start placeholder service',
       });
     }
 
     if (!state.httpsAccessible && state.caddyRunning) {
       plan.push({
         type: 'check-dns',
-        description: 'Verify DNS propagation and certificate generation'
+        description: 'Verify DNS propagation and certificate generation',
       });
     }
 
@@ -172,10 +172,7 @@ export class NodeRepairCommand extends BaseCommand<NodeRepairOptions> {
   /**
    * Execute the repair plan with retry logic and continue through failures
    */
-  private async executeRepairs(
-    repairPlan: Array<{ type: string; description: string }>, 
-    node: Node
-  ): Promise<void> {
+  private async executeRepairs(repairPlan: Array<{ type: string; description: string }>, node: Node): Promise<void> {
     const infrastructure = new DockerInfrastructure(
       node.ip,
       node.name,
@@ -183,11 +180,11 @@ export class NodeRepairCommand extends BaseCommand<NodeRepairOptions> {
       this.logger
     );
 
-    const failedActions: Array<{ action: typeof repairPlan[0]; error: Error }> = [];
+    const failedActions: Array<{ action: (typeof repairPlan)[0]; error: Error }> = [];
 
     for (const action of repairPlan) {
       this.logger.info(`\nExecuting: ${action.description}`);
-      
+
       if (this.dryRun) {
         this.logDryRun(action.description);
         continue;
@@ -201,23 +198,23 @@ export class NodeRepairCommand extends BaseCommand<NodeRepairOptions> {
               case 'install-docker':
                 await infrastructure.installDocker();
                 break;
-              
+
               case 'create-network':
                 await infrastructure.createEdgeNetwork();
                 break;
-              
+
               case 'deploy-caddy':
                 await infrastructure.deployCaddy();
                 break;
-              
+
               case 'deploy-placeholder':
                 await infrastructure.deployPlaceholder();
                 break;
-              
+
               case 'check-dns':
                 await this.verifyDNSAndCertificates(node);
                 break;
-              
+
               default:
                 this.logger.warn(`Unknown repair action: ${action.type}`);
             }
@@ -226,12 +223,11 @@ export class NodeRepairCommand extends BaseCommand<NodeRepairOptions> {
             maxAttempts: action.type === 'install-docker' ? 3 : 2,
             baseDelay: action.type === 'install-docker' ? 10000 : 5000,
             maxDelay: action.type === 'install-docker' ? 60000 : 30000,
-            description: action.description
+            description: action.description,
           }
         );
-        
+
         this.logger.info(`✅ ${action.description} completed`);
-        
       } catch (error) {
         this.logger.error(`❌ ${action.description} failed after retries: ${error}`);
         failedActions.push({ action, error: error as Error });
@@ -245,7 +241,7 @@ export class NodeRepairCommand extends BaseCommand<NodeRepairOptions> {
       failedActions.forEach(({ action, error }) => {
         this.logger.warn(`   - ${action.description}: ${error.message}`);
       });
-      
+
       // Only throw if critical actions failed (Docker installation)
       const criticalFailures = failedActions.filter(f => f.action.type === 'install-docker');
       if (criticalFailures.length > 0) {
@@ -260,7 +256,7 @@ export class NodeRepairCommand extends BaseCommand<NodeRepairOptions> {
   private async updateNodeStatusToActive(node: Node): Promise<void> {
     const updatedNode: Node = {
       ...node,
-      status: 'active'
+      status: 'active',
     };
 
     await this.stateManager.upsertNode(updatedNode);
@@ -279,7 +275,7 @@ export class NodeRepairCommand extends BaseCommand<NodeRepairOptions> {
     );
 
     const fqdn = `${node.name}.${this.config.public.cloudflare.domain}`;
-    
+
     try {
       await cfProvider.waitForDnsPropagation(fqdn, node.ip);
       this.logger.info(`✅ DNS propagation verified for ${fqdn}`);
@@ -294,15 +290,15 @@ export class NodeRepairCommand extends BaseCommand<NodeRepairOptions> {
 
   protected async validatePrerequisites(): Promise<void> {
     await super.validatePrerequisites();
-    
+
     if (!this.config.secrets.digitalOceanToken) {
       throw new Error('DYNIA_DO_TOKEN environment variable is required');
     }
-    
+
     if (!this.config.secrets.cloudflareToken) {
       throw new Error('DYNIA_CF_TOKEN environment variable is required');
     }
-    
+
     if (!this.config.secrets.cloudflareZoneId) {
       throw new Error('DYNIA_CF_ZONE_ID environment variable is required');
     }

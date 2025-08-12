@@ -33,16 +33,16 @@ export class NodeListCommand extends BaseCommand {
   private formatStatus(status: string): string {
     const statusSymbols = {
       active: '🟢 Active',
-      inactive: '🔴 Inactive', 
+      inactive: '🔴 Inactive',
       provisioning: '🟡 Provisioning',
       failed: '❌ Failed',
       // Progressive creation states
       'droplet-created': '🟠 Droplet Created',
-      'dns-configured': '🟠 DNS Configured', 
+      'dns-configured': '🟠 DNS Configured',
       'dns-ready': '🟠 DNS Ready',
       'infrastructure-ready': '🟠 Infrastructure Ready',
     };
-    
+
     return statusSymbols[status as keyof typeof statusSymbols] || status;
   }
 
@@ -51,14 +51,14 @@ export class NodeListCommand extends BaseCommand {
 
     // Get column widths
     const keys = Object.keys(rows[0]);
-    const widths = keys.reduce((acc, key) => {
-      const maxWidth = Math.max(
-        key.length,
-        ...rows.map(row => row[key]?.length || 0)
-      );
-      acc[key] = Math.min(maxWidth, 50); // Cap at 50 chars
-      return acc;
-    }, {} as Record<string, number>);
+    const widths = keys.reduce(
+      (acc, key) => {
+        const maxWidth = Math.max(key.length, ...rows.map(row => row[key]?.length || 0));
+        acc[key] = Math.min(maxWidth, 50); // Cap at 50 chars
+        return acc;
+      },
+      {} as Record<string, number>
+    );
 
     // Print header
     const header = keys.map(key => key.padEnd(widths[key])).join(' | ');
@@ -67,12 +67,12 @@ export class NodeListCommand extends BaseCommand {
 
     // Print rows
     for (const row of rows) {
-      const line = keys.map(key => {
-        const value = row[key] || '';
-        return value.length > widths[key] 
-          ? Helpers.truncate(value, widths[key])
-          : value.padEnd(widths[key]);
-      }).join(' | ');
+      const line = keys
+        .map(key => {
+          const value = row[key] || '';
+          return value.length > widths[key] ? Helpers.truncate(value, widths[key]) : value.padEnd(widths[key]);
+        })
+        .join(' | ');
       console.log(line);
     }
 

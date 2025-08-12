@@ -15,9 +15,7 @@ export const slbCommand: CommandModule<GlobalConfigOptions> = {
       .command({
         command: 'sync',
         describe: 'Synchronize healthy nodes to load balancer',
-        builder: yargs =>
-          yargs
-            .example('$0 slb sync', 'Sync all healthy nodes to Cloudflare Worker'),
+        builder: yargs => yargs.example('$0 slb sync', 'Sync all healthy nodes to Cloudflare Worker'),
         handler: createCommandHandler(SlbSyncCommand),
       })
       .demandCommand(1, 'Please specify an SLB action')

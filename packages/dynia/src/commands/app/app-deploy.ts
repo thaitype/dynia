@@ -1,13 +1,14 @@
 import { existsSync } from 'node:fs';
+
 import type { ArgumentsCamelCase } from 'yargs';
 
-import { BaseCommand } from '../../shared/base/base-command.js';
-import type { GlobalConfigOptions } from '../../internal/types.js';
-import { ValidationUtils } from '../../shared/utils/validation.js';
-import { Helpers } from '../../shared/utils/helpers.js';
 import { DockerProvider } from '../../core/providers/docker-provider.js';
 import { createHealthProvider } from '../../core/providers/health-provider.js';
+import type { GlobalConfigOptions } from '../../internal/types.js';
+import { BaseCommand } from '../../shared/base/base-command.js';
 import type { Deployment, Node } from '../../shared/types/index.js';
+import { Helpers } from '../../shared/utils/helpers.js';
+import { ValidationUtils } from '../../shared/utils/validation.js';
 
 /**
  * Options for app deploy command
@@ -36,7 +37,7 @@ export class AppDeployCommand extends BaseCommand<AppDeployOptions> {
 
     // Validate inputs
     ValidationUtils.validateRequiredArgs(this.argv, ['node', 'compose']);
-    
+
     if (!existsSync(composeFile)) {
       throw new Error(`Compose file not found: ${composeFile}`);
     }
@@ -56,22 +57,22 @@ export class AppDeployCommand extends BaseCommand<AppDeployOptions> {
 
     // Step 1: Preflight checks
     await this.preflightChecks(node, composeFile);
-    
+
     // Step 2: Analyze compose file
     const entryService = await this.analyzeComposeFile(composeFile);
-    
+
     // Step 3: Deploy application
     const composeHash = await this.deployApplication(composeFile);
-    
+
     // Step 4: Internal health check
     await this.performInternalHealthCheck(entryService, node);
-    
+
     // Step 5: Update Caddy configuration
     await this.updateCaddyConfiguration(node, entryService);
-    
+
     // Step 6: External health check
     await this.performExternalHealthCheck(node);
-    
+
     // Step 7: Update deployment state
     await this.updateDeploymentState(node, entryService, composeHash);
 
@@ -95,7 +96,7 @@ export class AppDeployCommand extends BaseCommand<AppDeployOptions> {
     // 1. Test SSH connectivity to the node
     // 2. Ensure 'edge' Docker network exists
     // 3. Validate docker-compose config
-    
+
     // For now, we'll just validate the compose file locally
     try {
       await this.dockerProvider.getComposeServices(composeFile);
@@ -113,7 +114,7 @@ export class AppDeployCommand extends BaseCommand<AppDeployOptions> {
     this.logger.info('Analyzing compose file...');
 
     const services = await this.dockerProvider.getComposeServices(composeFile);
-    
+
     // Find entry service using Dynia conventions
     let entryService = services.find(s => s.labels['dynia.entry'] === 'true');
     if (!entryService) {
@@ -135,7 +136,9 @@ export class AppDeployCommand extends BaseCommand<AppDeployOptions> {
     } else if (entryService.ports.length > 0) {
       entryPort = entryService.ports[0];
     } else {
-      throw new Error(`No port found for entry service '${entryService.name}'. Use 'dynia.port' label or expose ports.`);
+      throw new Error(
+        `No port found for entry service '${entryService.name}'. Use 'dynia.port' label or expose ports.`
+      );
     }
 
     // Determine domain (use node FQDN by default)
@@ -156,9 +159,9 @@ export class AppDeployCommand extends BaseCommand<AppDeployOptions> {
    */
   private async deployApplication(composeFile: string): Promise<string> {
     this.logger.info('Deploying application...');
-    
+
     const composeHash = await Helpers.hashFile(composeFile);
-    
+
     if (this.dryRun) {
       this.logDryRun(`upload and deploy compose file (hash: ${composeHash.slice(0, 12)})`);
       return composeHash;
@@ -175,14 +178,11 @@ export class AppDeployCommand extends BaseCommand<AppDeployOptions> {
   /**
    * Check internal service health
    */
-  private async performInternalHealthCheck(
-    entryService: { name: string; port: number },
-    node: Node
-  ): Promise<void> {
+  private async performInternalHealthCheck(entryService: { name: string; port: number }, node: Node): Promise<void> {
     this.logger.info('Checking internal service health...');
-    
+
     const internalUrl = `http://${entryService.name}:${entryService.port}${node.healthPath}`;
-    
+
     if (this.dryRun) {
       this.logDryRun(`check internal health at ${internalUrl}`);
       return;
@@ -191,7 +191,7 @@ export class AppDeployCommand extends BaseCommand<AppDeployOptions> {
     // In a real implementation, this would check the service via Docker network
     // For now, we'll simulate the check
     this.logger.info(`Would check: ${internalUrl}`);
-    
+
     // Simulate health check
     await Helpers.sleep(1000);
     this.logger.info('✅ Internal health check passed');
@@ -205,7 +205,7 @@ export class AppDeployCommand extends BaseCommand<AppDeployOptions> {
     entryService: { name: string; port: number; domain: string }
   ): Promise<void> {
     this.logger.info('Updating Caddy configuration...');
-    
+
     if (this.dryRun) {
       this.logDryRun(`update Caddy to route ${entryService.domain} to ${entryService.name}:${entryService.port}`);
       return;
@@ -215,7 +215,7 @@ export class AppDeployCommand extends BaseCommand<AppDeployOptions> {
     // 1. Generate new Caddyfile with updated routing
     // 2. Upload to the node
     // 3. Reload Caddy configuration
-    
+
     this.logger.info(`Would update routing: ${entryService.domain} → ${entryService.name}:${entryService.port}`);
     this.logger.info('✅ Caddy configuration updated');
   }
@@ -225,9 +225,9 @@ export class AppDeployCommand extends BaseCommand<AppDeployOptions> {
    */
   private async performExternalHealthCheck(node: Node): Promise<void> {
     this.logger.info('Checking external service health...');
-    
+
     const externalUrl = `https://${node.fqdn}${node.healthPath}`;
-    
+
     if (this.dryRun) {
       this.logDryRun(`check external health at ${externalUrl}`);
       return;
@@ -294,7 +294,7 @@ export class AppDeployCommand extends BaseCommand<AppDeployOptions> {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   private async rollbackToPlaceholder(_node: Node): Promise<void> {
     this.logger.info('Rolling back to placeholder...');
-    
+
     if (this.dryRun) {
       this.logDryRun('rollback Caddy configuration to placeholder service');
       return;

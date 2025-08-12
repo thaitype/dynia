@@ -1,6 +1,6 @@
+import { createDigitalOceanProvider } from '../../core/providers/digitalocean-provider.js';
 import { BaseCommand } from '../../shared/base/base-command.js';
 import { SSHKeyGenerator } from '../../shared/utils/ssh-key-generator.js';
-import { createDigitalOceanProvider } from '../../core/providers/digitalocean-provider.js';
 
 /**
  * Options for SSH create command
@@ -21,7 +21,7 @@ export class SSHCreateCommand extends BaseCommand<SSHCreateOptions> {
     this.logger.info(`Creating SSH key: ${keyName}`);
 
     const keyGenerator = new SSHKeyGenerator(this.logger);
-    
+
     // Validate ssh-keygen is available
     await keyGenerator.validateSSHKeygenAvailable();
 
@@ -29,19 +29,16 @@ export class SSHCreateCommand extends BaseCommand<SSHCreateOptions> {
     const existingKeyPair = await keyGenerator.loadKeyPair(keyName);
     if (existingKeyPair && !force) {
       this.logger.info(`SSH key pair '${keyName}' already exists. Use --force to recreate.`);
-      
+
       // Check if it's already uploaded to DigitalOcean
-      const doProvider = createDigitalOceanProvider(
-        this.config.secrets.digitalOceanToken,
-        this.logger
-      );
+      const doProvider = createDigitalOceanProvider(this.config.secrets.digitalOceanToken, this.logger);
 
       const existingDOKey = await doProvider.getSSHKey(existingKeyPair.fingerprint);
       if (existingDOKey) {
         this.logger.info(`✅ SSH key is already uploaded to DigitalOcean`);
         this.logger.info(`   Key ID: ${existingDOKey.id}`);
         this.logger.info(`   Fingerprint: ${existingDOKey.fingerprint}`);
-        
+
         if (outputEnv) {
           this.outputEnvironmentVariable(existingDOKey.id);
         }
@@ -54,11 +51,11 @@ export class SSHCreateCommand extends BaseCommand<SSHCreateOptions> {
     }
 
     // Generate new key pair using RSA 4096 by default
-    const keyPair = await keyGenerator.generateKeyPair({ 
+    const keyPair = await keyGenerator.generateKeyPair({
       keyName,
       keyType: 'rsa',
       keySize: 4096,
-      comment: `${keyName}@dynia-cli` 
+      comment: `${keyName}@dynia-cli`,
     });
 
     // Upload to DigitalOcean
@@ -66,10 +63,7 @@ export class SSHCreateCommand extends BaseCommand<SSHCreateOptions> {
 
     if (outputEnv) {
       // Get the uploaded key to get the ID
-      const doProvider = createDigitalOceanProvider(
-        this.config.secrets.digitalOceanToken,
-        this.logger
-      );
+      const doProvider = createDigitalOceanProvider(this.config.secrets.digitalOceanToken, this.logger);
       const uploadedKey = await doProvider.getSSHKey(keyPair.fingerprint);
       if (uploadedKey) {
         this.outputEnvironmentVariable(uploadedKey.id);
@@ -90,10 +84,7 @@ export class SSHCreateCommand extends BaseCommand<SSHCreateOptions> {
       return;
     }
 
-    const doProvider = createDigitalOceanProvider(
-      this.config.secrets.digitalOceanToken,
-      this.logger
-    );
+    const doProvider = createDigitalOceanProvider(this.config.secrets.digitalOceanToken, this.logger);
 
     try {
       const uploadedKey = await doProvider.createSSHKey({
@@ -120,7 +111,10 @@ export class SSHCreateCommand extends BaseCommand<SSHCreateOptions> {
   /**
    * Upload key pair to DigitalOcean
    */
-  private async uploadToDigitalOcean(keyPair: { publicKey: string; fingerprint: string }, keyName: string): Promise<void> {
+  private async uploadToDigitalOcean(
+    keyPair: { publicKey: string; fingerprint: string },
+    keyName: string
+  ): Promise<void> {
     this.logger.info(`Uploading SSH key to DigitalOcean...`);
 
     if (this.dryRun) {
@@ -128,10 +122,7 @@ export class SSHCreateCommand extends BaseCommand<SSHCreateOptions> {
       return;
     }
 
-    const doProvider = createDigitalOceanProvider(
-      this.config.secrets.digitalOceanToken,
-      this.logger
-    );
+    const doProvider = createDigitalOceanProvider(this.config.secrets.digitalOceanToken, this.logger);
 
     try {
       const uploadedKey = await doProvider.createSSHKey({
@@ -171,7 +162,7 @@ export class SSHCreateCommand extends BaseCommand<SSHCreateOptions> {
 
   protected async validatePrerequisites(): Promise<void> {
     await super.validatePrerequisites();
-    
+
     if (!this.config.secrets.digitalOceanToken) {
       throw new Error('DYNIA_DO_TOKEN environment variable is required to upload SSH keys');
     }

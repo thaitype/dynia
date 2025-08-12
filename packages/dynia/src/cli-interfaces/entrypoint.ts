@@ -4,12 +4,12 @@ import c from 'ansis';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 
-import { MARK_INFO } from '../internal/constant.js';
-import { generateCommand } from './generate.js';
-import { nodeCommand } from '../commands/node/index.js';
 import { appCommand } from '../commands/app/index.js';
+import { nodeCommand } from '../commands/node/index.js';
 import { slbCommand } from '../commands/slb/index.js';
 import { sshCommand } from '../commands/ssh/index.js';
+import { MARK_INFO } from '../internal/constant.js';
+import { generateCommand } from './generate.js';
 
 // import { secretCommand } from './secret/index.js';
 

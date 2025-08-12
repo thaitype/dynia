@@ -1,7 +1,8 @@
-import { writeFile, readFile, access, mkdir } from 'fs/promises';
-import { join, dirname } from 'path';
-import { homedir } from 'os';
 import { spawn } from 'child_process';
+import { access, mkdir, readFile, writeFile } from 'fs/promises';
+import { homedir } from 'os';
+import { dirname, join } from 'path';
+
 import type { ILogger } from '@thaitype/core-utils';
 
 export interface SSHKeyPair {
@@ -32,8 +33,7 @@ export class SSHKeyGenerator {
       await this.executeCommand('ssh-keygen --help 2>&1 | head -1 || ssh-keygen 2>&1 | head -1');
     } catch (error) {
       throw new Error(
-        'ssh-keygen is not available on this system. ' +
-        'Please install OpenSSH client tools to generate SSH keys.'
+        'ssh-keygen is not available on this system. ' + 'Please install OpenSSH client tools to generate SSH keys.'
       );
     }
   }
@@ -42,18 +42,13 @@ export class SSHKeyGenerator {
    * Generate a new SSH key pair using ssh-keygen
    */
   async generateKeyPair(options: SSHKeyGeneratorOptions = {}): Promise<SSHKeyPair> {
-    const {
-      keyName = 'dynia',
-      keyType = 'rsa',
-      keySize = 4096,
-      comment = 'dynia-generated-key'
-    } = options;
+    const { keyName = 'dynia', keyType = 'rsa', keySize = 4096, comment = 'dynia-generated-key' } = options;
 
     this.logger.info(`Generating SSH key pair: ${keyName} (${keyType} ${keySize})`);
 
     try {
       const keyPaths = this.getKeyPaths(keyName);
-      
+
       // Ensure .ssh directory exists
       await mkdir(dirname(keyPaths.privateKeyPath), { recursive: true });
 
@@ -70,11 +65,11 @@ export class SSHKeyGenerator {
       const fingerprint = this.parseFingerprint(fingerprintOutput);
 
       this.logger.info(`✅ SSH key generated: ${keyName}`);
-      
+
       return {
         privateKey,
         publicKey: publicKey.trim(),
-        fingerprint
+        fingerprint,
       };
     } catch (error) {
       throw new Error(`Failed to generate SSH key pair: ${error}`);
@@ -84,7 +79,10 @@ export class SSHKeyGenerator {
   /**
    * Save SSH key pair to files
    */
-  async saveKeyPair(keyPair: SSHKeyPair, keyName: string = 'dynia'): Promise<{ privateKeyPath: string; publicKeyPath: string }> {
+  async saveKeyPair(
+    keyPair: SSHKeyPair,
+    keyName: string = 'dynia'
+  ): Promise<{ privateKeyPath: string; publicKeyPath: string }> {
     const sshDir = join(homedir(), '.ssh');
     const privateKeyPath = join(sshDir, keyName);
     const publicKeyPath = join(sshDir, `${keyName}.pub`);
@@ -95,7 +93,7 @@ export class SSHKeyGenerator {
 
       // Save private key with restrictive permissions
       await writeFile(privateKeyPath, keyPair.privateKey, { mode: 0o600 });
-      
+
       // Save public key
       await writeFile(publicKeyPath, keyPair.publicKey, { mode: 0o644 });
 
@@ -122,14 +120,14 @@ export class SSHKeyGenerator {
 
       const privateKey = await readFile(privateKeyPath, 'utf-8');
       const publicKey = await readFile(publicKeyPath, 'utf-8');
-      
+
       // Generate fingerprint from private key
       const fingerprint = await this.generateFingerprintFromPrivateKey(privateKey);
 
       return {
         privateKey,
         publicKey: publicKey.trim(),
-        fingerprint
+        fingerprint,
       };
     } catch (error) {
       // Files don't exist or can't be read
@@ -146,28 +144,27 @@ export class SSHKeyGenerator {
     return keyPair !== null;
   }
 
-
   /**
    * Execute a command and return its output
    */
   private async executeCommand(command: string): Promise<string> {
     return new Promise((resolve, reject) => {
       const process = spawn('sh', ['-c', command], {
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['ignore', 'pipe', 'pipe'],
       });
 
       let stdout = '';
       let stderr = '';
 
-      process.stdout?.on('data', (data) => {
+      process.stdout?.on('data', data => {
         stdout += data.toString();
       });
 
-      process.stderr?.on('data', (data) => {
+      process.stderr?.on('data', data => {
         stderr += data.toString();
       });
 
-      process.on('close', (code) => {
+      process.on('close', code => {
         if (code === 0) {
           resolve(stdout.trim());
         } else {
@@ -175,7 +172,7 @@ export class SSHKeyGenerator {
         }
       });
 
-      process.on('error', (error) => {
+      process.on('error', error => {
         reject(new Error(`Command execution error: ${error.message}`));
       });
     });
@@ -215,7 +212,7 @@ export class SSHKeyGenerator {
       // Create a temporary file for the private key
       const tempKeyPath = join(homedir(), '.ssh', 'temp_dynia_key');
       await writeFile(tempKeyPath, privateKey, { mode: 0o600 });
-      
+
       try {
         // Use ssh-keygen to get fingerprint from private key
         const fingerprintOutput = await this.executeCommand(`ssh-keygen -lf "${tempKeyPath}"`);
@@ -241,7 +238,7 @@ export class SSHKeyGenerator {
     const sshDir = join(homedir(), '.ssh');
     return {
       privateKeyPath: join(sshDir, keyName),
-      publicKeyPath: join(sshDir, `${keyName}.pub`)
+      publicKeyPath: join(sshDir, `${keyName}.pub`),
     };
   }
 }

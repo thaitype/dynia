@@ -1,5 +1,6 @@
-import { join } from 'path';
 import { homedir } from 'os';
+import { join } from 'path';
+
 import type { ILogger } from '@thaitype/core-utils';
 
 /**
@@ -26,33 +27,37 @@ export class SSHExecutor {
     // In a real implementation, this would use a proper SSH library like 'ssh2'
     // For now, we'll use a simple approach with child_process and ssh command
     const { spawn } = await import('child_process');
-    
+
     return new Promise((resolve, reject) => {
       const sshArgs = [
-        '-i', this.keyPath,
-        '-o', 'StrictHostKeyChecking=no',
-        '-o', 'UserKnownHostsFile=/dev/null',
-        '-o', 'ConnectTimeout=30',
+        '-i',
+        this.keyPath,
+        '-o',
+        'StrictHostKeyChecking=no',
+        '-o',
+        'UserKnownHostsFile=/dev/null',
+        '-o',
+        'ConnectTimeout=30',
         `${this.username}@${this.ip}`,
-        command
+        command,
       ];
 
       const sshProcess = spawn('ssh', sshArgs, {
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['ignore', 'pipe', 'pipe'],
       });
 
       let stdout = '';
       let stderr = '';
 
-      sshProcess.stdout?.on('data', (data) => {
+      sshProcess.stdout?.on('data', data => {
         stdout += data.toString();
       });
 
-      sshProcess.stderr?.on('data', (data) => {
+      sshProcess.stderr?.on('data', data => {
         stderr += data.toString();
       });
 
-      sshProcess.on('close', (code) => {
+      sshProcess.on('close', code => {
         if (code === 0) {
           resolve(stdout.trim());
         } else {
@@ -60,7 +65,7 @@ export class SSHExecutor {
         }
       });
 
-      sshProcess.on('error', (error) => {
+      sshProcess.on('error', error => {
         reject(new Error(`SSH process error: ${error.message}`));
       });
     });
@@ -73,28 +78,32 @@ export class SSHExecutor {
     this.logger.debug(`SCP ${localPath} -> ${this.ip}:${remotePath}`);
 
     const { spawn } = await import('child_process');
-    
+
     return new Promise((resolve, reject) => {
       const scpArgs = [
-        '-i', this.keyPath,
-        '-o', 'StrictHostKeyChecking=no',
-        '-o', 'UserKnownHostsFile=/dev/null',
-        '-o', 'ConnectTimeout=30',
+        '-i',
+        this.keyPath,
+        '-o',
+        'StrictHostKeyChecking=no',
+        '-o',
+        'UserKnownHostsFile=/dev/null',
+        '-o',
+        'ConnectTimeout=30',
         localPath,
-        `${this.username}@${this.ip}:${remotePath}`
+        `${this.username}@${this.ip}:${remotePath}`,
       ];
 
       const scpProcess = spawn('scp', scpArgs, {
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['ignore', 'pipe', 'pipe'],
       });
 
       let stderr = '';
 
-      scpProcess.stderr?.on('data', (data) => {
+      scpProcess.stderr?.on('data', data => {
         stderr += data.toString();
       });
 
-      scpProcess.on('close', (code) => {
+      scpProcess.on('close', code => {
         if (code === 0) {
           resolve();
         } else {
@@ -102,7 +111,7 @@ export class SSHExecutor {
         }
       });
 
-      scpProcess.on('error', (error) => {
+      scpProcess.on('error', error => {
         reject(new Error(`SCP process error: ${error.message}`));
       });
     });
@@ -116,7 +125,7 @@ export class SSHExecutor {
 
     // Create file using echo and proper escaping
     const command = `cat > "${remotePath}" << 'EOF'\n${content}\nEOF`;
-    
+
     await this.executeCommand(command);
   }
 

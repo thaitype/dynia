@@ -1,9 +1,10 @@
 import { readFile } from 'node:fs/promises';
-import { parse as parseYaml } from 'yaml';
-import type { ILogger } from '@thaitype/core-utils';
 
-import type { IDockerProvider, ContainerInfo, ComposeServiceInfo } from './interfaces.js';
+import type { ILogger } from '@thaitype/core-utils';
+import { parse as parseYaml } from 'yaml';
+
 import { ExecaExecutor } from '../../executor/execa-executor.js';
+import type { ComposeServiceInfo, ContainerInfo, IDockerProvider } from './interfaces.js';
 
 /**
  * Docker provider implementation using docker and docker-compose CLI
@@ -40,7 +41,7 @@ export class DockerProvider implements IDockerProvider {
    */
   async composeDown(composeFile: string): Promise<void> {
     const args = ['compose', '-f', composeFile, 'down', '--remove-orphans'];
-    
+
     this.logger.debug(`Running: docker ${args.join(' ')}`);
     await this.executor.run('docker', args);
   }
@@ -146,28 +147,24 @@ export class DockerProvider implements IDockerProvider {
    */
   async getContainer(name: string): Promise<ContainerInfo | null> {
     try {
-      const args = [
-        'container', 
-        'inspect', 
-        '--format', 
-        '{{.Id}},{{.Name}},{{.State.Status}}',
-        name
-      ];
+      const args = ['container', 'inspect', '--format', '{{.Id}},{{.Name}},{{.State.Status}}', name];
 
       const output = await this.execAndCapture('docker', args);
       const [id, containerName, status] = output.trim().split(',');
 
       // Get port information
       const portArgs = [
-        'container', 
+        'container',
         'inspect',
         '--format',
         '{{range $p, $conf := .NetworkSettings.Ports}}{{$p}} {{end}}',
-        name
+        name,
       ];
-      
+
       const portOutput = await this.execAndCapture('docker', portArgs);
-      const ports = portOutput.trim().split(' ')
+      const ports = portOutput
+        .trim()
+        .split(' ')
         .filter(p => p)
         .map(portSpec => {
           const match = portSpec.match(/(\d+)\/(tcp|udp)/);

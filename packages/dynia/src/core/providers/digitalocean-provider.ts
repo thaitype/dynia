@@ -1,7 +1,7 @@
 import type { ILogger } from '@thaitype/core-utils';
 
-import type { IDigitalOceanProvider, DropletInfo, SSHKeyInfo } from './interfaces.js';
 import { Helpers } from '../../shared/utils/helpers.js';
+import type { DropletInfo, IDigitalOceanProvider, SSHKeyInfo } from './interfaces.js';
 
 /**
  * DigitalOcean provider implementation using DO API v2
@@ -15,7 +15,7 @@ export class DigitalOceanProvider implements IDigitalOceanProvider {
     private readonly logger: ILogger
   ) {
     this.headers = {
-      'Authorization': `Bearer ${this.token}`,
+      Authorization: `Bearer ${this.token}`,
       'Content-Type': 'application/json',
     };
   }
@@ -101,10 +101,7 @@ export class DigitalOceanProvider implements IDigitalOceanProvider {
   /**
    * Create SSH key in DigitalOcean account
    */
-  async createSSHKey(options: {
-    name: string;
-    publicKey: string;
-  }): Promise<SSHKeyInfo> {
+  async createSSHKey(options: { name: string; publicKey: string }): Promise<SSHKeyInfo> {
     this.logger.info(`Creating SSH key: ${options.name}`);
 
     const body = {
@@ -140,7 +137,7 @@ export class DigitalOceanProvider implements IDigitalOceanProvider {
     try {
       const response = await this.apiRequest('GET', `/account/keys/${idOrFingerprint}`);
       return this.mapSSHKeyResponse(response.ssh_key);
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (_error) {
       this.logger.debug(`SSH key not found: ${idOrFingerprint}`);
       return null;
@@ -164,10 +161,10 @@ export class DigitalOceanProvider implements IDigitalOceanProvider {
     method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     endpoint: string,
     body?: unknown
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ): Promise<{ droplet?: any; droplets?: any; ssh_key?: any; ssh_keys?: any }> {
     const url = `${this.baseUrl}${endpoint}`;
-    
+
     this.logger.debug(`DO API: ${method} ${endpoint}`);
 
     const response = await fetch(url, {
@@ -178,7 +175,7 @@ export class DigitalOceanProvider implements IDigitalOceanProvider {
 
     if (!response.ok) {
       let errorMessage = `DigitalOcean API error: ${response.status} ${response.statusText}`;
-      
+
       try {
         const errorBody = await response.json();
         if (errorBody.message) {
@@ -254,9 +251,6 @@ export class DigitalOceanProvider implements IDigitalOceanProvider {
 /**
  * Factory function to create DigitalOcean provider
  */
-export function createDigitalOceanProvider(
-  token: string,
-  logger: ILogger
-): IDigitalOceanProvider {
+export function createDigitalOceanProvider(token: string, logger: ILogger): IDigitalOceanProvider {
   return new DigitalOceanProvider(token, logger);
 }

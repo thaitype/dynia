@@ -43,9 +43,7 @@ export const sshCommand: CommandModule<GlobalConfigOptions> = {
         command: 'list',
         aliases: ['ls'],
         describe: 'List SSH keys in DigitalOcean account',
-        builder: yargs => 
-          yargs
-            .example('$0 ssh list', 'Show all SSH keys in your DigitalOcean account'),
+        builder: yargs => yargs.example('$0 ssh list', 'Show all SSH keys in your DigitalOcean account'),
         handler: createCommandHandler(SSHListCommand),
       })
       .demandCommand(1, 'Please specify an SSH action')

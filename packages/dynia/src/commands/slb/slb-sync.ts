@@ -1,8 +1,8 @@
 import type { ArgumentsCamelCase } from 'yargs';
 
-import { BaseCommand } from '../../shared/base/base-command.js';
 import { createHealthProvider } from '../../core/providers/health-provider.js';
 import type { GlobalConfigOptions } from '../../internal/types.js';
+import { BaseCommand } from '../../shared/base/base-command.js';
 import type { Node } from '../../shared/types/index.js';
 
 /**
@@ -21,7 +21,7 @@ export class SlbSyncCommand extends BaseCommand {
 
     // Step 1: Get all nodes
     const allNodes = await this.stateManager.getNodes();
-    
+
     if (allNodes.length === 0) {
       this.logger.info('No nodes found. Nothing to sync.');
       return;
@@ -31,7 +31,7 @@ export class SlbSyncCommand extends BaseCommand {
 
     // Step 2: Filter healthy nodes
     const healthyNodes = await this.filterHealthyNodes(allNodes);
-    
+
     if (healthyNodes.length === 0) {
       this.logger.warn('No healthy nodes found!');
       return;
@@ -39,16 +39,14 @@ export class SlbSyncCommand extends BaseCommand {
 
     // Step 3: Build origins list
     const origins = healthyNodes.map(node => `https://${node.fqdn}`);
-    
+
     this.logger.info(`Healthy nodes: ${healthyNodes.length}/${allNodes.length}`);
     for (const node of healthyNodes) {
       this.logger.info(`  ✅ ${node.name} (${node.fqdn})`);
     }
 
-    const unhealthyNodes = allNodes.filter(node => 
-      !healthyNodes.find(healthy => healthy.name === node.name)
-    );
-    
+    const unhealthyNodes = allNodes.filter(node => !healthyNodes.find(healthy => healthy.name === node.name));
+
     if (unhealthyNodes.length > 0) {
       this.logger.warn('Unhealthy nodes:');
       for (const node of unhealthyNodes) {
@@ -76,7 +74,7 @@ export class SlbSyncCommand extends BaseCommand {
       }
 
       const healthUrl = `https://${node.fqdn}${node.healthPath}`;
-      
+
       try {
         const result = await this.healthProvider.checkHttp(healthUrl, {
           timeout: 10000,
@@ -101,7 +99,7 @@ export class SlbSyncCommand extends BaseCommand {
    */
   private async deployToWorker(origins: string[]): Promise<void> {
     this.logger.info('Load balancer origins (configure your LB manually):');
-    
+
     console.log('\n📋 Load Balancer Configuration:');
     console.log('================================');
     console.log(`Total healthy origins: ${origins.length}`);
@@ -124,7 +122,7 @@ export class SlbSyncCommand extends BaseCommand {
 
   protected async validatePrerequisites(): Promise<void> {
     await super.validatePrerequisites();
-    
+
     if (!this.config.secrets.cloudflareToken) {
       throw new Error('DYNIA_CF_TOKEN environment variable is required for SLB sync');
     }
