@@ -5,8 +5,8 @@ import type { ClusterNode } from '../../shared/types/index.js';
 import * as readline from 'readline';
 
 export interface ClusterNodeRemoveOptions {
-  'cluster-name': string;
-  'node-id': string;
+  cluster: string;
+  node: string;
   confirm?: boolean;
 }
 
@@ -16,10 +16,10 @@ export interface ClusterNodeRemoveOptions {
  */
 export class ClusterNodeRemoveCommand extends BaseCommand<ClusterNodeRemoveOptions> {
   protected async run(): Promise<void> {
-    const { 'cluster-name': clusterName, 'node-id': nodeId, confirm = false } = this.argv;
+    const { cluster: clusterName, node: nodeId, confirm = false } = this.argv;
 
     // Validate inputs
-    ValidationUtils.validateRequiredArgs(this.argv, ['cluster-name', 'node-id']);
+    ValidationUtils.validateRequiredArgs(this.argv, ['cluster', 'node']);
 
     this.logger.info(`Removing node ${nodeId} from cluster ${clusterName}...`);
 

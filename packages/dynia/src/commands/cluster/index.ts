@@ -13,6 +13,8 @@ import { ClusterReservedIpAssignCommand } from './cluster-reserved-ip-assign.js'
 import { ClusterReservedIpListCommand } from './cluster-reserved-ip-list.js';
 import { ClusterDeployCommand } from './cluster-deploy.js';
 import { ClusterRepairHaCommand } from './cluster-repair-ha.js';
+import { ClusterNodePrepareCommand } from './cluster-node-prepare.js';
+import { ClusterPrepareCommand } from './cluster-prepare.js';
 
 /**
  * Cluster management command module
@@ -92,7 +94,7 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
               describe: 'Add node(s) to cluster',
               builder: yargs =>
                 yargs
-                  .option('name', {
+                  .option('cluster', {
                     type: 'string',
                     describe: 'Cluster name',
                     demandOption: true,
@@ -102,21 +104,21 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
                     describe: 'Number of nodes to add',
                     default: 1,
                   })
-                  .example('$0 cluster node add --name myapp', 'Add one node to cluster')
-                  .example('$0 cluster node add --name myapp --count 2', 'Add two nodes to cluster'),
+                  .example('$0 cluster node add --cluster myapp', 'Add one node to cluster')
+                  .example('$0 cluster node add --cluster myapp --count 2', 'Add two nodes to cluster'),
               handler: createCommandHandler(ClusterNodeAddCommand),
             })
             .command({
-              command: 'remove <cluster-name> <node-id>',
+              command: 'remove',
               describe: 'Remove a node from cluster',
               builder: yargs =>
                 yargs
-                  .positional('cluster-name', {
+                  .option('cluster', {
                     type: 'string',
                     describe: 'Cluster name',
                     demandOption: true,
                   })
-                  .positional('node-id', {
+                  .option('node', {
                     type: 'string',
                     describe: 'Two-word node ID (e.g., brave-panda)',
                     demandOption: true,
@@ -127,44 +129,74 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
                     default: false,
                   })
                   .example(
-                    '$0 cluster node remove myapp brave-panda --confirm',
+                    '$0 cluster node remove --cluster myapp --node brave-panda --confirm',
                     'Remove node from cluster'
                   ),
               handler: createCommandHandler(ClusterNodeRemoveCommand),
             })
             .command({
-              command: 'activate <cluster-name> <node-id>',
+              command: 'activate',
               describe: 'Make a node active (move Reserved IP)',
               builder: yargs =>
                 yargs
-                  .positional('cluster-name', {
+                  .option('cluster', {
                     type: 'string',
                     describe: 'Cluster name',
                     demandOption: true,
                   })
-                  .positional('node-id', {
+                  .option('node', {
                     type: 'string',
                     describe: 'Two-word node ID to make active',
                     demandOption: true,
                   })
                   .example(
-                    '$0 cluster node activate myapp misty-owl',
+                    '$0 cluster node activate --cluster myapp --node misty-owl',
                     'Make misty-owl the active node'
                   ),
               handler: createCommandHandler(ClusterNodeActivateCommand),
             })
             .command({
-              command: 'list <cluster-name>',
+              command: 'list',
               describe: 'List nodes in a cluster',
               builder: yargs =>
                 yargs
-                  .positional('cluster-name', {
+                  .option('cluster', {
                     type: 'string',
                     describe: 'Cluster name',
                     demandOption: true,
                   })
-                  .example('$0 cluster node list myapp', 'List all nodes in cluster'),
+                  .example('$0 cluster node list --cluster myapp', 'List all nodes in cluster'),
               handler: createCommandHandler(ClusterNodeListCommand),
+            })
+            .command({
+              command: 'prepare',
+              describe: 'Prepare node infrastructure (Docker + Caddy + keepalived)',
+              builder: yargs =>
+                yargs
+                  .option('cluster', {
+                    type: 'string',
+                    describe: 'Cluster name',
+                    demandOption: true,
+                  })
+                  .option('node', {
+                    type: 'string',
+                    describe: 'Two-word node ID to prepare',
+                    demandOption: true,
+                  })
+                  .option('force', {
+                    type: 'boolean',
+                    describe: 'Force re-preparation even if node appears ready',
+                    default: false,
+                  })
+                  .example(
+                    '$0 cluster node prepare --cluster myapp --node brave-panda',
+                    'Prepare node infrastructure'
+                  )
+                  .example(
+                    '$0 cluster node prepare --cluster myapp --node brave-panda --force',
+                    'Force re-preparation of node'
+                  ),
+              handler: createCommandHandler(ClusterNodePrepareCommand),
             })
             .demandCommand(1, 'Please specify a node action')
             .help(),
@@ -217,6 +249,30 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
             )
             .example('$0 cluster deploy --name myapp --placeholder', 'Deploy test placeholder'),
         handler: createCommandHandler(ClusterDeployCommand),
+      })
+      .command({
+        command: 'prepare <name>',
+        describe: 'Prepare cluster infrastructure on all nodes',
+        builder: yargs =>
+          yargs
+            .positional('name', {
+              type: 'string',
+              describe: 'Cluster name to prepare',
+              demandOption: true,
+            })
+            .option('force', {
+              type: 'boolean',
+              describe: 'Force re-preparation of all nodes',
+              default: false,
+            })
+            .option('parallel', {
+              type: 'boolean',
+              describe: 'Prepare nodes in parallel (faster but harder to debug)',
+              default: false,
+            })
+            .example('$0 cluster prepare myapp', 'Prepare all nodes in cluster')
+            .example('$0 cluster prepare myapp --force --parallel', 'Force parallel preparation'),
+        handler: createCommandHandler(ClusterPrepareCommand),
       })
       .command({
         command: 'repair-ha <name>',

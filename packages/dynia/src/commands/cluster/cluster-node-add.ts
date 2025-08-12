@@ -3,11 +3,11 @@ import { ValidationUtils } from '../../shared/utils/validation.js';
 import { Helpers } from '../../shared/utils/helpers.js';
 import { TwoWordNameGenerator } from '../../shared/utils/two-word-generator.js';
 import { createDigitalOceanProvider } from '../../core/providers/digitalocean-provider.js';
-import { DockerInfrastructure } from '../../shared/utils/docker-infrastructure.js';
+import { NodePreparationService } from '../../shared/services/node-preparation-service.js';
 import type { ClusterNode } from '../../shared/types/index.js';
 
 export interface ClusterNodeAddOptions {
-  name: string;
+  cluster: string;
   count?: number;
 }
 
@@ -17,25 +17,25 @@ export interface ClusterNodeAddOptions {
  */
 export class ClusterNodeAddCommand extends BaseCommand<ClusterNodeAddOptions> {
   protected async run(): Promise<void> {
-    const { name, count = 1 } = this.argv;
+    const { cluster, count = 1 } = this.argv;
 
     // Validate inputs
-    ValidationUtils.validateRequiredArgs(this.argv, ['name']);
+    ValidationUtils.validateRequiredArgs(this.argv, ['cluster']);
     
     if (count < 1 || count > 10) {
       throw new Error('Count must be between 1 and 10 nodes');
     }
 
-    this.logger.info(`Adding ${count} node${count === 1 ? '' : 's'} to cluster: ${name}`);
+    this.logger.info(`Adding ${count} node${count === 1 ? '' : 's'} to cluster: ${cluster}`);
 
     // Get existing cluster
-    const cluster = await this.stateManager.getCluster(name);
-    if (!cluster) {
-      throw new Error(`Cluster '${name}' not found. Use 'dynia cluster create-ha' to create it first.`);
+    const clusterInfo = await this.stateManager.getCluster(cluster);
+    if (!clusterInfo) {
+      throw new Error(`Cluster '${cluster}' not found. Use 'dynia cluster create-ha' to create it first.`);
     }
 
     // Get existing cluster nodes to avoid name collisions
-    const existingClusterNodes = await this.stateManager.getClusterNodes(name);
+    const existingClusterNodes = await this.stateManager.getClusterNodes(cluster);
     const allClusterNodes = await this.stateManager.getAllClusterNodes();
     const existingNames = allClusterNodes.map(n => n.twoWordId);
 
@@ -55,7 +55,7 @@ export class ClusterNodeAddCommand extends BaseCommand<ClusterNodeAddOptions> {
       const priority = lowestPriority - (i + 1) * 10; // Ensure new nodes have lower priority
       
       try {
-        const newNode = await this.createClusterNode(cluster.name, nodeId, cluster.region, cluster.size, cluster.vpcId, priority);
+        const newNode = await this.createClusterNode(clusterInfo.name, nodeId, clusterInfo.region, clusterInfo.size, clusterInfo.vpcId, priority);
         createdNodes.push(newNode);
         
         // Save node state immediately
@@ -81,16 +81,16 @@ export class ClusterNodeAddCommand extends BaseCommand<ClusterNodeAddOptions> {
 
     // Summary
     if (createdNodes.length > 0) {
-      this.logger.info(`\n✅ Successfully added ${createdNodes.length} node${createdNodes.length === 1 ? '' : 's'} to cluster ${name}:`);
+      this.logger.info(`\n✅ Successfully added ${createdNodes.length} node${createdNodes.length === 1 ? '' : 's'} to cluster ${cluster}:`);
       
       for (const node of createdNodes) {
         this.logger.info(`   ${node.twoWordId}: ${node.publicIp} (${node.role}, priority ${node.priority})`);
       }
       
       this.logger.info('\nNext steps:');
-      this.logger.info(`   1. Check cluster status: dynia cluster node list ${name}`);
-      this.logger.info(`   2. Deploy services: dynia cluster deploy --name ${name} --placeholder`);
-      this.logger.info(`   3. Test failover: dynia cluster node activate ${name} <node-id>`);
+      this.logger.info(`   1. Check cluster status: dynia cluster node list --cluster ${cluster}`);
+      this.logger.info(`   2. Deploy services: dynia cluster deploy --name ${cluster} --placeholder`);
+      this.logger.info(`   3. Test failover: dynia cluster node activate --cluster ${cluster} --node <node-id>`);
     }
   }
 
@@ -162,29 +162,68 @@ export class ClusterNodeAddCommand extends BaseCommand<ClusterNodeAddOptions> {
   }
 
   /**
-   * Set up Docker infrastructure on new node
+   * Set up complete node infrastructure using NodePreparationService
    */
   private async setupNodeInfrastructure(nodeIp: string, nodeId: string, clusterName: string): Promise<void> {
-    this.logger.info(`Setting up infrastructure on node ${nodeId}...`);
+    this.logger.info(`Setting up complete infrastructure on node ${nodeId}...`);
     
     if (this.dryRun) {
-      this.logDryRun(`setup Docker infrastructure on node ${nodeId}`);
+      this.logDryRun(`setup Docker + Caddy + keepalived on node ${nodeId}`);
       return;
     }
 
-    const infrastructure = new DockerInfrastructure(
-      nodeIp,
-      nodeId,
-      this.config.public.cloudflare.domain,
-      this.logger
-    );
+    // Get cluster and all nodes for keepalived configuration
+    const clusterDetails = await this.stateManager.getCluster(clusterName);
+    const allNodes = await this.stateManager.getClusterNodes(clusterName);
+    
+    if (!clusterDetails) {
+      throw new Error(`Cluster ${clusterName} not found during node preparation`);
+    }
 
-    // Install basic Docker infrastructure
-    // Note: This sets up the basic containers, but keepalived configuration
-    // will be handled in a separate step when we implement the KeepaliveManager
-    await infrastructure.setupInfrastructure();
+    // Calculate priority for this new node (standby nodes get decreasing priority)
+    const standbyNodes = allNodes.filter(n => n.role !== 'active');
+    const priority = 150 - (standbyNodes.length * 50); // 150, 100, 50, etc.
 
-    this.logger.info(`✅ Infrastructure setup completed on node ${nodeId}`);
+    const preparationService = new NodePreparationService(this.logger);
+
+    // Create temporary node object for keepalived configuration
+    const currentNode = {
+      twoWordId: nodeId,
+      dropletId: 'temp', // We'll update this later
+      publicIp: nodeIp,
+      role: 'standby' as const,
+      status: 'active' as const,
+      priority,
+      clusterId: clusterName,
+      hostname: `${clusterName}-${nodeId}`,
+      createdAt: Helpers.generateTimestamp(),
+    };
+
+    // Prepare node with proper keepalived configuration
+    await preparationService.prepareNode({
+      nodeIp: nodeIp,
+      nodeName: nodeId,
+      baseDomain: clusterDetails.baseDomain,
+      cluster: {
+        name: clusterDetails.name,
+        region: clusterDetails.region,
+        reservedIp: clusterDetails.reservedIp,
+        reservedIpId: clusterDetails.reservedIpId,
+      },
+      keepalived: {
+        priority,
+        role: 'standby',
+        allNodes: [...allNodes, currentNode], // Include this new node
+      },
+    });
+
+    // Test node readiness
+    const isReady = await preparationService.testNodeReadiness(nodeIp, nodeId);
+    if (!isReady) {
+      throw new Error(`Node preparation completed but readiness tests failed`);
+    }
+
+    this.logger.info(`✅ Complete infrastructure setup completed on node ${nodeId}`);
   }
 
   protected async validatePrerequisites(): Promise<void> {

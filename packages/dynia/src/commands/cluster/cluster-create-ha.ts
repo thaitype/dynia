@@ -5,6 +5,7 @@ import { TwoWordNameGenerator } from '../../shared/utils/two-word-generator.js';
 import { createDigitalOceanProvider } from '../../core/providers/digitalocean-provider.js';
 import { createCloudflareProvider } from '../../core/providers/cloudflare-provider.js';
 import { ReservedIpService } from '../../shared/services/reserved-ip-service.js';
+import { NodePreparationService } from '../../shared/services/node-preparation-service.js';
 import type { Cluster, ClusterNode } from '../../shared/types/index.js';
 
 /**
@@ -63,7 +64,10 @@ export class ClusterCreateHaCommand extends BaseCommand<ClusterCreateHaOptions> 
     // Step 4: Assign Reserved IP to droplet using shared service
     const reservedIpInfo = await this.assignReservedIpToDroplet(dropletInfo.id, region);
     
-    // Step 5: Save cluster state
+    // Step 5: Prepare first node infrastructure (Docker + Caddy + keepalived)
+    await this.prepareFirstNode(dropletInfo, baseDomain, name, region, reservedIpInfo);
+    
+    // Step 6: Save cluster state
     const cluster: Cluster = {
       name,
       baseDomain,
@@ -159,6 +163,62 @@ export class ClusterCreateHaCommand extends BaseCommand<ClusterCreateHaOptions> 
   }
 
   /**
+   * Prepare first cluster node infrastructure
+   */
+  private async prepareFirstNode(
+    dropletInfo: { id: string; name: string; ip: string },
+    baseDomain: string,
+    clusterName: string,
+    region: string,
+    reservedIpInfo: { id: string; ip: string }
+  ): Promise<void> {
+    this.logger.info('Preparing first node infrastructure...');
+    
+    if (this.dryRun) {
+      this.logDryRun(`prepare first node ${dropletInfo.name} with Docker + Caddy + keepalived (single-node mode)`);
+      return;
+    }
+
+    const preparationService = new NodePreparationService(this.logger);
+
+    // Prepare node with single-node keepalived configuration
+    await preparationService.prepareNode({
+      nodeIp: dropletInfo.ip,
+      nodeName: dropletInfo.name,
+      baseDomain: baseDomain,
+      cluster: {
+        name: clusterName,
+        region: region,
+        reservedIp: reservedIpInfo.ip,
+        reservedIpId: reservedIpInfo.id,
+      },
+      keepalived: {
+        priority: 200, // Single node gets highest priority
+        role: 'active',
+        allNodes: [{ // Single node array
+          twoWordId: dropletInfo.name,
+          dropletId: dropletInfo.id,
+          publicIp: dropletInfo.ip,
+          role: 'active',
+          status: 'active',
+          priority: 200,
+          clusterId: clusterName,
+          hostname: dropletInfo.name,
+          createdAt: Helpers.generateTimestamp(),
+        }],
+      },
+    });
+
+    // Test node readiness
+    const isReady = await preparationService.testNodeReadiness(dropletInfo.ip, dropletInfo.name);
+    if (!isReady) {
+      throw new Error(`First node preparation completed but readiness tests failed`);
+    }
+
+    this.logger.info(`✅ First node ${dropletInfo.name} prepared successfully`);
+  }
+
+  /**
    * Create VPC for cluster private networking
    */
   private async createVpc(clusterName: string, region: string): Promise<{ id: string; name: string }> {
@@ -198,12 +258,12 @@ export class ClusterCreateHaCommand extends BaseCommand<ClusterCreateHaOptions> 
     region: string,
     size: string,
     vpcId: string
-  ): Promise<{ id: string; ip: string }> {
+  ): Promise<{ id: string; name: string; ip: string }> {
     this.logger.info(`Creating first node: ${nodeId}`);
     
     if (this.dryRun) {
       this.logDryRun(`create droplet ${clusterName}-${nodeId} in region ${region}`);
-      return { id: 'mock-droplet-id', ip: '203.0.113.10' };
+      return { id: 'mock-droplet-id', name: `${clusterName}-${nodeId}`, ip: '203.0.113.10' };
     }
 
     const doProvider = createDigitalOceanProvider(

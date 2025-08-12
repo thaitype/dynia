@@ -3,7 +3,7 @@ import { ValidationUtils } from '../../shared/utils/validation.js';
 import type { ClusterNode } from '../../shared/types/index.js';
 
 export interface ClusterNodeListOptions {
-  'cluster-name': string;
+  cluster: string;
 }
 
 /**
@@ -12,10 +12,10 @@ export interface ClusterNodeListOptions {
  */
 export class ClusterNodeListCommand extends BaseCommand<ClusterNodeListOptions> {
   protected async run(): Promise<void> {
-    const { 'cluster-name': clusterName } = this.argv;
+    const { cluster: clusterName } = this.argv;
 
     // Validate inputs
-    ValidationUtils.validateRequiredArgs(this.argv, ['cluster-name']);
+    ValidationUtils.validateRequiredArgs(this.argv, ['cluster']);
 
     this.logger.info(`Listing nodes in cluster: ${clusterName}`);
 
