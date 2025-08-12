@@ -71,6 +71,9 @@ export class ClusterDeployCommand extends BaseCommand<ClusterDeployOptions> {
     await this.deployServiceToNode(activeNode, targetDomain, placeholder, compose, healthPath);
 
     // Step 2: Configure DNS
+    if (!cluster.reservedIp) {
+      throw new Error(`Cluster '${name}' does not have a Reserved IP assigned. Use 'dynia cluster reserved-ip assign --cluster ${name} --node <node-id>' to assign one.`);
+    }
     await this.configureDNS(targetDomain, cluster.reservedIp, proxied);
 
     // Step 3: Save route in state

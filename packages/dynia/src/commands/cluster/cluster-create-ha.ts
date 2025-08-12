@@ -48,28 +48,21 @@ export class ClusterCreateHaCommand extends BaseCommand<ClusterCreateHaOptions> 
 
     this.logger.info(`Creating HA cluster: ${name} with base domain ${baseDomain}`);
 
-    // Step 1: Create Reserved IP
-    const reservedIpInfo = await this.createReservedIp(region);
-    
-    // Step 2: Create VPC (optional, for future multi-node support)
+    // Step 1: Create VPC (for private networking)
     const vpcInfo = await this.createVpc(name, region);
     
-    // Step 3: Generate first node ID
+    // Step 2: Generate first node ID
     const existingNodes = await this.stateManager.getAllClusterNodes();
     const existingNames = existingNodes.map(n => n.twoWordId);
     const firstNodeId = TwoWordNameGenerator.generate(existingNames);
     
-    // Step 4: Create first droplet
+    // Step 3: Create first droplet
     const dropletInfo = await this.createFirstNode(name, firstNodeId, region, size, vpcInfo.id);
     
-    // Step 5: Brief wait for droplet to be fully registered in DO system
-    this.logger.info('Waiting for droplet to be fully available...');
-    await new Promise(resolve => setTimeout(resolve, 15000)); // 15 seconds
+    // Step 4: Create Reserved IP with immediate droplet assignment (atomic operation)
+    const reservedIpInfo = await this.createReservedIpWithDroplet(dropletInfo.id, region);
     
-    // Step 6: Assign Reserved IP to first node
-    await this.assignReservedIp(reservedIpInfo.id, dropletInfo.id);
-    
-    // Step 7: Save cluster state
+    // Step 5: Save cluster state
     const cluster: Cluster = {
       name,
       baseDomain,
@@ -87,7 +80,7 @@ export class ClusterCreateHaCommand extends BaseCommand<ClusterCreateHaOptions> 
       `save cluster ${name} to state`
     );
     
-    // Step 8: Save first cluster node state
+    // Step 6: Save first cluster node state
     const clusterNode: ClusterNode = {
       twoWordId: firstNodeId,
       clusterId: name,
@@ -138,6 +131,28 @@ export class ClusterCreateHaCommand extends BaseCommand<ClusterCreateHaOptions> 
 
     const reservedIp = await doProvider.createReservedIp(region);
     this.logger.info(`✅ Reserved IP created: ${reservedIp.ip} (${reservedIp.id})`);
+    
+    return reservedIp;
+  }
+
+  /**
+   * Create Reserved IP with immediate droplet assignment (atomic operation)
+   */
+  private async createReservedIpWithDroplet(dropletId: string, region: string): Promise<{ id: string; ip: string }> {
+    this.logger.info('Creating Reserved IP with immediate droplet assignment...');
+    
+    if (this.dryRun) {
+      this.logDryRun(`create Reserved IP with immediate assignment to droplet ${dropletId} in region ${region}`);
+      return { id: 'mock-reserved-ip', ip: '203.0.113.100' };
+    }
+
+    const doProvider = createDigitalOceanProvider(
+      this.config.secrets.digitalOceanToken,
+      this.logger
+    );
+
+    const reservedIp = await doProvider.createReservedIpWithDroplet(dropletId, region);
+    this.logger.info(`✅ Reserved IP created and assigned: ${reservedIp.ip} (${reservedIp.id})`);
     
     return reservedIp;
   }

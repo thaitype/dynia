@@ -176,6 +176,25 @@ export class DigitalOceanProvider implements IDigitalOceanProvider {
   }
 
   /**
+   * Create a new Reserved IP and assign it to a droplet in one atomic operation
+   */
+  async createReservedIpWithDroplet(dropletId: string, region: string): Promise<ReservedIpInfo> {
+    this.logger.info(`Creating Reserved IP with immediate assignment to droplet ${dropletId} in region: ${region}`);
+
+    const body = {
+      droplet_id: parseInt(dropletId, 10), // DigitalOcean API expects numeric droplet ID
+      region,
+    };
+
+    const response = await this.apiRequest('POST', '/reserved_ips', body);
+    const reservedIp = response.reserved_ip;
+
+    const result = this.mapReservedIpResponse(reservedIp);
+    this.logger.info(`✅ Created and assigned Reserved IP: ${result.ip} (${result.id}) to droplet ${dropletId}`);
+    return result;
+  }
+
+  /**
    * List all Reserved IPs
    */
   async listReservedIps(): Promise<ReservedIpInfo[]> {

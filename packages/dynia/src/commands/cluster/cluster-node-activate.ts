@@ -47,6 +47,9 @@ export class ClusterNodeActivateCommand extends BaseCommand<ClusterNodeActivateO
     await this.performHealthCheck(targetNode);
     
     // Step 2: Reassign Reserved IP
+    if (!cluster.reservedIpId) {
+      throw new Error(`Cluster '${clusterName}' does not have a Reserved IP assigned. Use 'dynia cluster reserved-ip assign' to assign one.`);
+    }
     await this.reassignReservedIp(cluster.reservedIpId, targetNode.dropletId, targetNode.twoWordId);
     
     // Step 3: Update node roles in state

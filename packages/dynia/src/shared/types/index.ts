@@ -76,12 +76,12 @@ export type Deployment = z.infer<typeof DeploymentSchema>;
 export const ClusterSchema = z.object({
   name: z.string(),
   baseDomain: z.string(), // e.g., "example.com"
-  reservedIp: z.string().ip(),
-  reservedIpId: z.string(), // DigitalOcean Reserved IP ID
+  reservedIp: z.string().ip().optional(), // Optional - can be assigned later
+  reservedIpId: z.string().optional(), // Optional - DigitalOcean Reserved IP ID
   region: z.string(),
   vpcId: z.string().optional(), // VPC ID for private networking
   size: z.string(), // default node size
-  activeNodeId: z.string(), // two-word ID of active node
+  activeNodeId: z.string().optional(), // Optional - may not have active node initially
   createdAt: z.string().datetime(),
 });
 export type Cluster = z.infer<typeof ClusterSchema>;

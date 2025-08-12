@@ -103,6 +103,11 @@ export interface IDigitalOceanProvider {
   createReservedIp(region: string): Promise<ReservedIpInfo>;
 
   /**
+   * Create a new Reserved IP and assign it to a droplet atomically
+   */
+  createReservedIpWithDroplet(dropletId: string, region: string): Promise<ReservedIpInfo>;
+
+  /**
    * List all Reserved IPs
    */
   listReservedIps(): Promise<ReservedIpInfo[]>;

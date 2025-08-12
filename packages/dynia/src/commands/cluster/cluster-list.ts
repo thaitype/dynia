@@ -24,10 +24,10 @@ export class ClusterListCommand extends BaseCommand<{}> {
     
     for (const cluster of clusters) {
       const name = cluster.name.padEnd(15).substring(0, 15);
-      const reservedIp = cluster.reservedIp.padEnd(16).substring(0, 16);
+      const reservedIp = (cluster.reservedIp || 'Not assigned').padEnd(16).substring(0, 16);
       const baseDomain = cluster.baseDomain.padEnd(15).substring(0, 15);
       const region = cluster.region.padEnd(12).substring(0, 12);
-      const activeNode = cluster.activeNodeId.padEnd(11).substring(0, 11);
+      const activeNode = (cluster.activeNodeId || 'None').padEnd(11).substring(0, 11);
       
       console.log(`│ ${name} │ ${reservedIp} │ ${baseDomain} │ ${region} │ ${activeNode} │`);
     }

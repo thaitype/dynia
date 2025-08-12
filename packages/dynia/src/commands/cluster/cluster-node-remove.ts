@@ -78,6 +78,9 @@ export class ClusterNodeRemoveCommand extends BaseCommand<ClusterNodeRemoveOptio
 
     // Step 1: If removing active node, perform failover first
     if (isActiveNode && replacementNode) {
+      if (!cluster.reservedIpId) {
+        throw new Error(`Cluster '${clusterName}' does not have a Reserved IP assigned. Cannot perform failover.`);
+      }
       await this.performFailover(cluster.reservedIpId, replacementNode, clusterName);
     }
 

@@ -9,6 +9,7 @@ import { ClusterNodeAddCommand } from './cluster-node-add.js';
 import { ClusterNodeListCommand } from './cluster-node-list.js';
 import { ClusterNodeRemoveCommand } from './cluster-node-remove.js';
 import { ClusterNodeActivateCommand } from './cluster-node-activate.js';
+import { ClusterReservedIpAssignCommand } from './cluster-reserved-ip-assign.js';
 import { ClusterDeployCommand } from './cluster-deploy.js';
 import { ClusterRepairHaCommand } from './cluster-repair-ha.js';
 
@@ -239,6 +240,38 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
             .example('$0 cluster repair-ha myapp --check-only', 'Check cluster health')
             .example('$0 cluster repair-ha myapp --force', 'Force repair cluster'),
         handler: createCommandHandler(ClusterRepairHaCommand),
+      })
+      .command({
+        command: 'reserved-ip <action>',
+        describe: 'Manage Reserved IP assignments',
+        builder: yargs =>
+          yargs
+            .command({
+              command: 'assign',
+              describe: 'Assign Reserved IP to cluster node',
+              builder: yargs =>
+                yargs
+                  .option('cluster', {
+                    type: 'string',
+                    describe: 'Cluster name',
+                    demandOption: true,
+                  })
+                  .option('node', {
+                    type: 'string', 
+                    describe: 'Node ID to assign Reserved IP to',
+                    demandOption: true,
+                  })
+                  .example(
+                    '$0 cluster reserved-ip assign --cluster myapp --node brave-panda',
+                    'Assign Reserved IP to specific node'
+                  ),
+              handler: createCommandHandler(ClusterReservedIpAssignCommand),
+            })
+            .demandCommand(1, 'Please specify a Reserved IP action')
+            .help(),
+        handler: () => {
+          // This will never be called due to demandCommand(1)
+        },
       })
       .demandCommand(1, 'Please specify a cluster action')
       .help(),
