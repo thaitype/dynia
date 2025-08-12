@@ -134,14 +134,14 @@ export class NodeCreateCommand extends BaseCommand<NodeCreateOptions> {
   }
 
   /**
-   * Wait for DNS propagation
+   * Check DNS propagation (non-blocking)
    */
   private async waitForDnsPropagation(name: string, expectedIp: string): Promise<void> {
     const fqdn = `${name}.${this.config.public.cloudflare.domain}`;
-    this.logger.info(`Waiting for DNS propagation: ${fqdn}`);
+    this.logger.info(`Checking DNS propagation: ${fqdn}`);
     
     if (this.dryRun) {
-      this.logDryRun(`wait for DNS propagation of ${fqdn}`);
+      this.logDryRun(`check DNS propagation of ${fqdn}`);
       return;
     }
 
@@ -152,8 +152,14 @@ export class NodeCreateCommand extends BaseCommand<NodeCreateOptions> {
       this.logger
     );
 
-    // Wait for DNS propagation using the provider
-    await cfProvider.waitForDnsPropagation(fqdn, expectedIp);
+    // Check DNS propagation but don't block on failure (like node repair does)
+    try {
+      await cfProvider.waitForDnsPropagation(fqdn, expectedIp, 30000); // Shorter timeout: 30 seconds
+      this.logger.info(`✅ DNS propagation verified for ${fqdn}`);
+    } catch (error) {
+      this.logger.warn(`DNS propagation not yet complete for ${fqdn}: ${error}`);
+      this.logger.info(`ℹ️  Continuing with infrastructure setup - Caddy will handle certificate generation`);
+    }
   }
 
   /**
