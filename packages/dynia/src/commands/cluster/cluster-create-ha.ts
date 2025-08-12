@@ -62,10 +62,14 @@ export class ClusterCreateHaCommand extends BaseCommand<ClusterCreateHaOptions> 
     // Step 4: Create first droplet
     const dropletInfo = await this.createFirstNode(name, firstNodeId, region, size, vpcInfo.id);
     
-    // Step 5: Assign Reserved IP to first node
+    // Step 5: Brief wait for droplet to be fully registered in DO system
+    this.logger.info('Waiting for droplet to be fully available...');
+    await new Promise(resolve => setTimeout(resolve, 15000)); // 15 seconds
+    
+    // Step 6: Assign Reserved IP to first node
     await this.assignReservedIp(reservedIpInfo.id, dropletInfo.id);
     
-    // Step 6: Save cluster state
+    // Step 7: Save cluster state
     const cluster: Cluster = {
       name,
       baseDomain,
@@ -83,7 +87,7 @@ export class ClusterCreateHaCommand extends BaseCommand<ClusterCreateHaOptions> 
       `save cluster ${name} to state`
     );
     
-    // Step 7: Save first cluster node state
+    // Step 8: Save first cluster node state
     const clusterNode: ClusterNode = {
       twoWordId: firstNodeId,
       clusterId: name,
@@ -155,10 +159,14 @@ export class ClusterCreateHaCommand extends BaseCommand<ClusterCreateHaOptions> 
     );
 
     const vpcName = `${clusterName}-vpc`;
+    // Generate unique IP range based on cluster name hash to avoid conflicts
+    const clusterHash = this.generateClusterHash(clusterName);
+    const ipRange = `10.${clusterHash}.0.0/16`;
+    
     const vpc = await doProvider.createVpc({
       name: vpcName,
       region,
-      ipRange: '10.10.0.0/16', // Standard private range
+      ipRange,
     });
 
     this.logger.info(`✅ VPC created: ${vpc.name} (${vpc.id})`);
@@ -222,6 +230,21 @@ export class ClusterCreateHaCommand extends BaseCommand<ClusterCreateHaOptions> 
 
     await doProvider.assignReservedIp(reservedIpId, dropletId);
     this.logger.info('✅ Reserved IP assigned to first node');
+  }
+
+  /**
+   * Generate a unique hash for cluster VPC IP range (1-254)
+   */
+  private generateClusterHash(clusterName: string): number {
+    // Simple hash function to generate a number between 1-254 for VPC IP range
+    let hash = 0;
+    for (let i = 0; i < clusterName.length; i++) {
+      const char = clusterName.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    // Ensure range is between 1-254 (avoiding 0 and 255)
+    return Math.abs(hash % 254) + 1;
   }
 
   protected async validatePrerequisites(): Promise<void> {

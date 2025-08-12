@@ -206,7 +206,7 @@ export class DigitalOceanProvider implements IDigitalOceanProvider {
 
     const body = {
       resource_type: 'droplet',
-      resource_id: dropletId,
+      resource_id: parseInt(dropletId, 10), // DigitalOcean API expects numeric droplet ID
     };
 
     await this.apiRequest('POST', `/reserved_ips/${reservedIpId}/actions`, {
