@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import type { ILogger } from '@thaitype/core-utils';
 
 import { SSHExecutor } from './ssh.js';
+import { Helpers } from './helpers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -24,22 +25,54 @@ export class DockerInfrastructure {
   }
 
   /**
-   * Complete infrastructure setup on the remote node
+   * Complete infrastructure setup on the remote node with retry logic
    */
   async setupInfrastructure(): Promise<void> {
     this.logger.info('Setting up Docker infrastructure...');
 
-    // Step 1: Wait for SSH connection
-    await this.ssh.waitForConnection();
+    // Step 1: Wait for SSH connection (with retry)
+    await Helpers.retry(
+      () => this.ssh.waitForConnection(),
+      {
+        maxAttempts: 3,
+        baseDelay: 5000, // 5 seconds
+        maxDelay: 30000, // 30 seconds max
+        description: 'SSH connection establishment'
+      }
+    );
 
-    // Step 2: Install Docker
-    await this.installDocker();
+    // Step 2: Install Docker (with retry for transient package manager issues)
+    await Helpers.retry(
+      () => this.installDocker(),
+      {
+        maxAttempts: 3,
+        baseDelay: 10000, // 10 seconds
+        maxDelay: 60000,  // 1 minute max
+        description: 'Docker installation'
+      }
+    );
 
-    // Step 3: Deploy Caddy
-    await this.deployCaddy();
+    // Step 3: Deploy Caddy (with retry for Docker service startup delays)
+    await Helpers.retry(
+      () => this.deployCaddy(),
+      {
+        maxAttempts: 2,
+        baseDelay: 5000,  // 5 seconds
+        maxDelay: 15000,  // 15 seconds max
+        description: 'Caddy deployment'
+      }
+    );
 
-    // Step 4: Deploy placeholder service
-    await this.deployPlaceholder();
+    // Step 4: Deploy placeholder service (with retry)
+    await Helpers.retry(
+      () => this.deployPlaceholder(),
+      {
+        maxAttempts: 2,
+        baseDelay: 5000,  // 5 seconds
+        maxDelay: 15000,  // 15 seconds max
+        description: 'Placeholder service deployment'
+      }
+    );
 
     this.logger.info('✅ Docker infrastructure setup complete');
   }
@@ -427,26 +460,186 @@ networks:
   }
 
   /**
-   * Test infrastructure health
+   * Test infrastructure health - two-sided validation (internal + public)
    */
   async testInfrastructure(): Promise<boolean> {
     try {
-      this.logger.info('Testing infrastructure health...');
+      this.logger.info('🔍 Starting comprehensive infrastructure health check...');
+      
+      // Phase 1: Internal Health Check
+      const internalHealthy = await this.testInternalHealth();
+      if (!internalHealthy) {
+        this.logger.error('❌ Internal health check failed');
+        return false;
+      }
+      
+      // Phase 2: Public Health Check  
+      const publicHealthy = await this.testPublicHealth();
+      if (!publicHealthy) {
+        this.logger.error('❌ Public health check failed');
+        return false;
+      }
 
-      // Check if services are running
-      const caddyStatus = await this.ssh.executeCommand('cd /opt/dynia/caddy && docker compose ps --format json');
-      const placeholderStatus = await this.ssh.executeCommand('cd /opt/dynia/placeholder && docker compose ps --format json');
-
-      this.logger.debug(`Caddy status: ${caddyStatus}`);
-      this.logger.debug(`Placeholder status: ${placeholderStatus}`);
-
-      // Test placeholder service locally
-      await this.ssh.executeCommand('curl -f http://localhost:8080/ >/dev/null');
-
-      this.logger.info('✅ Infrastructure health check passed');
+      this.logger.info('✅ Complete infrastructure health check passed (internal + public)');
       return true;
+      
     } catch (error) {
       this.logger.error(`Infrastructure health check failed: ${error}`);
+      return false;
+    }
+  }
+
+  /**
+   * Test internal infrastructure health (containers, networking, services)
+   */
+  private async testInternalHealth(): Promise<boolean> {
+    try {
+      this.logger.info('🔧 Phase 1: Testing internal infrastructure health...');
+      
+      // Step 1: Wait for containers to initialize 
+      this.logger.info('⏳ Waiting for containers to initialize (45 seconds)...');
+      await Helpers.sleep(45000);
+
+      // Step 2: Check container states and health with retry
+      await Helpers.retry(
+        async () => {
+          const caddyStatus = await this.ssh.executeCommand('cd /opt/dynia/caddy && docker compose ps --format json');
+          const placeholderStatus = await this.ssh.executeCommand('cd /opt/dynia/placeholder && docker compose ps --format json');
+          
+          this.logger.debug(`Caddy status: ${caddyStatus}`);
+          this.logger.debug(`Placeholder status: ${placeholderStatus}`);
+          
+          // Parse container status
+          const caddyInfo = JSON.parse(caddyStatus.trim() || '{}');
+          const placeholderInfo = JSON.parse(placeholderStatus.trim() || '{}');
+          
+          // Verify containers are running
+          if (caddyInfo.State !== 'running') {
+            throw new Error(`Caddy container not running: ${caddyInfo.State || 'unknown'}`);
+          }
+          
+          if (placeholderInfo.State !== 'running') {
+            throw new Error(`Placeholder container not running: ${placeholderInfo.State || 'unknown'}`);
+          }
+          
+          // Check health status progression
+          if (caddyInfo.Health === 'starting') {
+            throw new Error('Caddy container still starting up');
+          }
+          
+          if (placeholderInfo.Health === 'starting') {
+            throw new Error('Placeholder container still starting up');
+          }
+        },
+        {
+          maxAttempts: 8,
+          baseDelay: 10000, // 10 seconds
+          maxDelay: 30000,  // max 30 seconds
+          description: 'Container readiness verification'
+        }
+      );
+
+      // Step 3: Test internal service connectivity
+      await Helpers.retry(
+        async () => {
+          // Test placeholder service directly
+          await this.ssh.executeCommand('curl -f --connect-timeout 5 --max-time 10 http://localhost:8080/ >/dev/null');
+          this.logger.info('✅ Placeholder service responding on port 8080');
+          
+          // Test Caddy admin interface
+          await this.ssh.executeCommand('curl -f --connect-timeout 5 --max-time 10 http://localhost:2019/config/ >/dev/null');
+          this.logger.info('✅ Caddy admin interface responding');
+        },
+        {
+          maxAttempts: 6,
+          baseDelay: 5000,  // 5 seconds
+          maxDelay: 15000,  // max 15 seconds
+          description: 'Internal service connectivity test'
+        }
+      );
+
+      this.logger.info('✅ Internal infrastructure health check passed');
+      return true;
+      
+    } catch (error) {
+      this.logger.error(`Internal health check failed: ${error}`);
+      return false;
+    }
+  }
+
+  /**
+   * Test public accessibility (DNS, HTTPS, end-to-end)
+   */
+  private async testPublicHealth(): Promise<boolean> {
+    try {
+      this.logger.info('🌐 Phase 2: Testing public accessibility...');
+      
+      const publicUrl = `https://${this.nodeName}.${this.domain}/`;
+      
+      // Step 1: Test DNS resolution from multiple resolvers
+      this.logger.info('📡 Testing DNS resolution...');
+      const resolvers = ['8.8.8.8', '1.1.1.1'];
+      
+      for (const resolver of resolvers) {
+        await Helpers.retry(
+          async () => {
+            const result = await this.ssh.executeCommand(`nslookup ${this.nodeName}.${this.domain} ${resolver} | grep "Address:" | tail -1 | awk '{print $2}'`);
+            const resolvedIp = result.trim();
+            if (!resolvedIp || resolvedIp.includes('NXDOMAIN')) {
+              throw new Error(`DNS resolution failed on ${resolver}`);
+            }
+            this.logger.info(`✅ DNS resolves correctly on ${resolver} → ${resolvedIp}`);
+          },
+          {
+            maxAttempts: 3,
+            baseDelay: 5000,
+            maxDelay: 15000,
+            description: `DNS resolution test (${resolver})`
+          }
+        );
+      }
+
+      // Step 2: Test HTTPS endpoint with extensive retry (certificates take time)
+      await Helpers.retry(
+        async () => {
+          // Test from the server itself (most reliable)
+          await this.ssh.executeCommand(`curl -f --connect-timeout 15 --max-time 45 "${publicUrl}" >/dev/null`);
+          this.logger.info('✅ HTTPS endpoint accessible from server');
+        },
+        {
+          maxAttempts: 12,  // Up to 12 attempts for cert generation
+          baseDelay: 15000, // 15 seconds
+          maxDelay: 60000,  // max 1 minute between attempts
+          description: 'HTTPS endpoint accessibility test'
+        }
+      );
+
+      // Step 3: Validate HTTPS certificate
+      await Helpers.retry(
+        async () => {
+          const certCheck = await this.ssh.executeCommand(`openssl s_client -connect ${this.nodeName}.${this.domain}:443 -servername ${this.nodeName}.${this.domain} </dev/null 2>/dev/null | openssl x509 -noout -dates`);
+          if (!certCheck.includes('notBefore') || !certCheck.includes('notAfter')) {
+            throw new Error('Invalid SSL certificate');
+          }
+          this.logger.info('✅ SSL certificate is valid');
+        },
+        {
+          maxAttempts: 5,
+          baseDelay: 10000,
+          maxDelay: 30000,
+          description: 'SSL certificate validation'
+        }
+      );
+
+      // Step 4: Test complete request/response cycle
+      await this.ssh.executeCommand(`curl -f --connect-timeout 10 --max-time 30 "${publicUrl}" | grep -q "Dynia Node"`);
+      this.logger.info('✅ Complete request/response cycle working with correct content');
+
+      this.logger.info('✅ Public accessibility health check passed');
+      return true;
+      
+    } catch (error) {
+      this.logger.error(`Public health check failed: ${error}`);
       return false;
     }
   }

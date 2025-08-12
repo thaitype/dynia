@@ -3,6 +3,7 @@ import { NodeNameSchema, ValidationUtils } from '../../shared/utils/validation.j
 import { InfrastructureChecker } from '../../shared/utils/infrastructure-checker.js';
 import { DockerInfrastructure } from '../../shared/utils/docker-infrastructure.js';
 import { createCloudflareProvider } from '../../core/providers/cloudflare-provider.js';
+import { Helpers } from '../../shared/utils/helpers.js';
 import type { Node } from '../../shared/types/index.js';
 
 /**
@@ -91,6 +92,9 @@ export class NodeRepairCommand extends BaseCommand<NodeRepairOptions> {
 
     if (finalState.errors.length === 0) {
       this.logger.info(`✅ Node ${name} repair completed successfully`);
+      
+      // Update node status to active if all checks pass
+      await this.updateNodeStatusToActive(node);
     } else {
       this.logger.info(`⚠️  Node ${name} repair completed with some issues:`);
       finalState.errors.forEach(error => {
@@ -166,7 +170,7 @@ export class NodeRepairCommand extends BaseCommand<NodeRepairOptions> {
   }
 
   /**
-   * Execute the repair plan
+   * Execute the repair plan with retry logic and continue through failures
    */
   private async executeRepairs(
     repairPlan: Array<{ type: string; description: string }>, 
@@ -179,6 +183,8 @@ export class NodeRepairCommand extends BaseCommand<NodeRepairOptions> {
       this.logger
     );
 
+    const failedActions: Array<{ action: typeof repairPlan[0]; error: Error }> = [];
+
     for (const action of repairPlan) {
       this.logger.info(`\nExecuting: ${action.description}`);
       
@@ -188,38 +194,77 @@ export class NodeRepairCommand extends BaseCommand<NodeRepairOptions> {
       }
 
       try {
-        switch (action.type) {
-          case 'install-docker':
-            await infrastructure.installDocker();
-            break;
-          
-          case 'create-network':
-            await infrastructure.createEdgeNetwork();
-            break;
-          
-          case 'deploy-caddy':
-            await infrastructure.deployCaddy();
-            break;
-          
-          case 'deploy-placeholder':
-            await infrastructure.deployPlaceholder();
-            break;
-          
-          case 'check-dns':
-            await this.verifyDNSAndCertificates(node);
-            break;
-          
-          default:
-            this.logger.warn(`Unknown repair action: ${action.type}`);
-        }
+        // Execute each repair step with retry logic
+        await Helpers.retry(
+          async () => {
+            switch (action.type) {
+              case 'install-docker':
+                await infrastructure.installDocker();
+                break;
+              
+              case 'create-network':
+                await infrastructure.createEdgeNetwork();
+                break;
+              
+              case 'deploy-caddy':
+                await infrastructure.deployCaddy();
+                break;
+              
+              case 'deploy-placeholder':
+                await infrastructure.deployPlaceholder();
+                break;
+              
+              case 'check-dns':
+                await this.verifyDNSAndCertificates(node);
+                break;
+              
+              default:
+                this.logger.warn(`Unknown repair action: ${action.type}`);
+            }
+          },
+          {
+            maxAttempts: action.type === 'install-docker' ? 3 : 2,
+            baseDelay: action.type === 'install-docker' ? 10000 : 5000,
+            maxDelay: action.type === 'install-docker' ? 60000 : 30000,
+            description: action.description
+          }
+        );
         
         this.logger.info(`✅ ${action.description} completed`);
         
       } catch (error) {
-        this.logger.error(`❌ ${action.description} failed: ${error}`);
-        throw error;
+        this.logger.error(`❌ ${action.description} failed after retries: ${error}`);
+        failedActions.push({ action, error: error as Error });
+        // Continue with next action instead of stopping
       }
     }
+
+    // Report summary of failures if any
+    if (failedActions.length > 0) {
+      this.logger.warn(`\n⚠️  Some repair actions failed:`);
+      failedActions.forEach(({ action, error }) => {
+        this.logger.warn(`   - ${action.description}: ${error.message}`);
+      });
+      
+      // Only throw if critical actions failed (Docker installation)
+      const criticalFailures = failedActions.filter(f => f.action.type === 'install-docker');
+      if (criticalFailures.length > 0) {
+        throw new Error(`Critical repair failures: ${criticalFailures.map(f => f.action.description).join(', ')}`);
+      }
+    }
+  }
+
+  /**
+   * Update node status to active after successful health check
+   */
+  private async updateNodeStatusToActive(node: Node): Promise<void> {
+    const updatedNode: Node = {
+      ...node,
+      status: 'active'
+    };
+
+    await this.stateManager.upsertNode(updatedNode);
+    this.logger.info(`💾 Node status updated to: active`);
   }
 
   /**

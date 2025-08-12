@@ -188,6 +188,8 @@ export class NodeCreateCommand extends BaseCommand<NodeCreateOptions> {
     if (!healthCheck) {
       throw new Error('Infrastructure health check failed after deployment');
     }
+    
+    this.logger.info('✅ Infrastructure health check passed - node is fully operational');
   }
 
   /**
