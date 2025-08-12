@@ -1,17 +1,28 @@
 # Dynia CLI
 
-A powerful command-line tool for automated cloud infrastructure management and deployment. Dynia simplifies the creation and management of cloud nodes with integrated DNS, HTTPS certificates, and health monitoring.
+A powerful command-line tool for automated cloud infrastructure management and High Availability (HA) cluster deployment. Dynia simplifies the creation and management of scalable cloud infrastructure with integrated DNS, HTTPS certificates, load balancing, and automated failover.
 
 ## ✨ Features
 
+### 🏗️ High Availability Clustering
+- **🔗 Reserved IP Management**: Stable public IP address for cluster access
+- **⚡ Elastic Scaling**: Start with 1 node, scale to N nodes seamlessly  
+- **🔄 Automatic Failover**: keepalived-based failover with priority management
+- **🎯 Host-Based Routing**: Multiple services behind a single IP using Caddy proxy
+- **🏷️ Two-Word Node IDs**: Human-friendly node identification (e.g., `brave-panda`, `misty-owl`)
+
+### ☁️ Cloud Infrastructure Management
 - **🔑 SSH Key Management**: Automated SSH key generation and DigitalOcean integration
-- **☁️ Cloud Node Creation**: One-command DigitalOcean droplet provisioning with Ubuntu 22.04
+- **🖥️ Cloud Node Creation**: One-command DigitalOcean droplet provisioning with Ubuntu 22.04
 - **🌐 DNS Automation**: Automatic Cloudflare DNS A record creation and propagation
 - **🔒 HTTPS Certificates**: Automated SSL/TLS certificate generation via Caddy
 - **🐳 Docker Infrastructure**: Containerized services with Caddy proxy and health monitoring
+
+### 🔧 Operations & Reliability
 - **🔍 Two-Sided Health Checks**: Internal container validation + public accessibility testing
 - **🔄 Intelligent Recovery**: Progressive state saving and automatic repair capabilities
 - **⚡ Built-in Resilience**: Retry logic for transient failures and network issues
+- **📊 Infrastructure Monitoring**: Comprehensive cluster and node status reporting
 
 ## 🚀 Quick Start
 
@@ -64,7 +75,6 @@ Dynia uses default configuration for DigitalOcean resources:
 - **Region**: `nyc3` (New York)
 - **Droplet Size**: `s-1vcpu-1gb` (1 vCPU, 1GB RAM)
 - **Image**: `ubuntu-22-04-x64` (Ubuntu 22.04 LTS)
-- **Domain**: `thaitype.dev` (configurable)
 
 ## 📖 Commands Reference
 
@@ -91,28 +101,153 @@ pnpm dynia ssh create --output-env
 pnpm dynia ssh list
 ```
 
+## 🏗️ HA Cluster Management
+
+### Cluster Operations
+
+#### Create HA Cluster
+```bash
+# Create a new HA cluster (starts with 1 node)
+pnpm dynia cluster create-ha --name myapp --base-domain example.com
+
+# Create cluster in specific region
+pnpm dynia cluster create-ha --name webapp --base-domain mydomain.com --region sgp1 --size s-2vcpu-2gb
+```
+
+#### List Clusters
+```bash
+# Show all clusters
+pnpm dynia cluster list
+```
+
+#### Prepare Cluster Infrastructure
+```bash
+# Prepare all nodes in cluster
+pnpm dynia cluster prepare myapp
+
+# Force re-preparation of all nodes
+pnpm dynia cluster prepare myapp --force
+
+# Prepare nodes in parallel (faster)
+pnpm dynia cluster prepare myapp --parallel
+```
+
+#### Repair Cluster
+```bash
+# Check cluster health only
+pnpm dynia cluster repair-ha myapp --check-only
+
+# Repair cluster infrastructure
+pnpm dynia cluster repair-ha myapp --force
+```
+
+#### Destroy Cluster
+```bash
+# Destroy cluster with confirmation prompt
+pnpm dynia cluster destroy myapp
+
+# Force destroy without confirmation
+pnpm dynia cluster destroy myapp --confirm
+```
+
 ### Node Management
 
-#### Create Node
+#### Add Nodes
 ```bash
-# Create a single node
+# Add one node to cluster
+pnpm dynia cluster node add --cluster myapp
+
+# Add multiple nodes
+pnpm dynia cluster node add --cluster myapp --count 3
+```
+
+#### List Nodes
+```bash
+# Show all nodes in a cluster
+pnpm dynia cluster node list --cluster myapp
+```
+
+#### Prepare Individual Nodes
+```bash
+# Prepare specific node infrastructure
+pnpm dynia cluster node prepare --cluster myapp --node brave-panda
+
+# Force re-preparation of node
+pnpm dynia cluster node prepare --cluster myapp --node brave-panda --force
+```
+
+#### Activate Node (Failover)
+```bash
+# Make a node active (move Reserved IP)
+pnpm dynia cluster node activate --cluster myapp --node misty-owl
+```
+
+#### Remove Nodes
+```bash
+# Remove node with confirmation prompt
+pnpm dynia cluster node remove --cluster myapp --node brave-panda
+
+# Force remove without confirmation
+pnpm dynia cluster node remove --cluster myapp --node brave-panda --confirm
+```
+
+### Reserved IP Management
+
+#### List Reserved IPs
+```bash
+# Show all Reserved IPs and their assignment status
+pnpm dynia cluster reserved-ip list
+
+# Filter by region
+pnpm dynia cluster reserved-ip list --region nyc3
+
+# Show only unassigned IPs
+pnpm dynia cluster reserved-ip list --status unassigned
+```
+
+#### Assign Reserved IP
+```bash
+# Assign Reserved IP to specific node
+pnpm dynia cluster reserved-ip assign --cluster myapp --node brave-panda
+```
+
+### Service Deployment
+
+#### Deploy Services
+```bash
+# Deploy placeholder service for testing
+pnpm dynia cluster deploy --name myapp --placeholder
+
+# Deploy custom application with domain
+pnpm dynia cluster deploy --name myapp --compose ./app.yml --domain api.example.com
+
+# Deploy with custom health check path
+pnpm dynia cluster deploy --name myapp --compose ./app.yml --domain web.example.com --health-path /health
+```
+
+## 🏗️ Legacy Single Node Management
+
+For backward compatibility, single-node commands are still available:
+
+#### Create Single Node
+```bash
+# Create a single node (legacy mode)
 pnpm dynia node create --name webserver
 
 # Create numbered node
 pnpm dynia node create --name api --number 1
-# Results in: api-1.yourdomain.com
 
 # Create node with custom health check path
 pnpm dynia node create --name app --health-path /health
 ```
 
-#### List Nodes
+#### List Single Nodes
 ```bash
-# Show all nodes and their status
+# Show all single nodes and their status
 pnpm dynia node list
 ```
 
-#### Repair Node
+#### Repair Single Node
 ```bash
 # Check node status only
 pnpm dynia node repair webserver --check-only
@@ -124,9 +259,10 @@ pnpm dynia node repair webserver
 pnpm dynia node repair webserver --force
 ```
 
-## 🔧 Complete Workflow
+## 🔧 Complete Workflows
 
-### 1. Initial Setup
+### 1. HA Cluster Setup (Recommended)
+
 ```bash
 # Step 1: Create and upload SSH key to DigitalOcean
 pnpm dynia ssh create --output-env
@@ -134,108 +270,137 @@ pnpm dynia ssh create --output-env
 # Step 2: Copy the DYNIA_SSH_KEY_ID to your .env file
 echo "DYNIA_SSH_KEY_ID=12345678" >> .env
 
-# Step 3: Verify SSH key was created
-pnpm dynia ssh list
+# Step 3: Create your first HA cluster
+pnpm dynia cluster create-ha --name myapp --base-domain example.com
+
+# Step 4: Verify cluster creation
+pnpm dynia cluster list
+pnpm dynia cluster node list --cluster myapp
+
+# Your cluster is now accessible at the Reserved IP
+# You can deploy services to: https://yourservice.example.com
 ```
 
-### 2. Node Creation
-```bash
-# Create your first node
-pnpm dynia node create --name myapp
+### 2. Scaling to Multiple Nodes
 
-# Monitor the process - you'll see:
-# ✅ DigitalOcean droplet created
-# ✅ DNS A record created  
-# ✅ DNS propagation verified
-# ✅ Docker infrastructure deployed
-# ✅ Health check passed - node is fully operational
+```bash
+# Add additional nodes for high availability
+pnpm dynia cluster node add --cluster myapp --count 2
+
+# Verify all nodes are healthy
+pnpm dynia cluster node list --cluster myapp
+
+# Test failover by activating a different node
+pnpm dynia cluster node activate --cluster myapp --node misty-owl
+
+# Deploy a test service across the cluster
+pnpm dynia cluster deploy --name myapp --placeholder
 ```
 
-### 3. Verification
+### 3. Service Deployment
+
 ```bash
-# Check node status
-pnpm dynia node list
+# Deploy your application to the cluster
+pnpm dynia cluster deploy --name myapp --compose ./docker-compose.yml --domain api.example.com
 
-# Your node should show as 'active'
-# Access your node at: https://myapp.yourdomain.com
-```
-
-### 4. Troubleshooting
-```bash
-# If something goes wrong, use repair
-pnpm dynia node repair myapp --check-only
-
-# View detailed infrastructure status
-pnpm dynia node repair myapp --force
+# The service will be accessible at: https://api.example.com
+# Traffic will be routed to the active node automatically
 ```
 
 ## 🏗️ Infrastructure Details
 
 ### What Gets Created
 
-When you create a node, Dynia automatically provisions:
+When you create an HA cluster, Dynia automatically provisions:
 
-1. **DigitalOcean Droplet**
-   - Ubuntu 22.04 LTS server
-   - Docker and Docker Compose installed
+1. **DigitalOcean Infrastructure**
+   - Multiple Ubuntu 22.04 LTS droplets
+   - Reserved IP address for cluster access
+   - VPC for private networking (future)
    - SSH access configured
 
 2. **Cloudflare DNS**
-   - A record: `nodename.yourdomain.com → droplet_ip`
-   - 5-minute TTL for faster propagation
+   - A records pointing to Reserved IP
+   - Flexible domain routing configuration
 
-3. **Docker Services**
-   - **Caddy Proxy**: Handles HTTPS certificates and routing
-   - **Placeholder Service**: Default nginx container serving a welcome page
-   - **Edge Network**: Docker network for service communication
+3. **HA Services on Each Node**
+   - **Docker & Docker Compose**: Container orchestration
+   - **Caddy Proxy**: HTTPS certificates and host-based routing
+   - **keepalived**: Automatic failover between nodes
+   - **Health Monitoring**: Container and service health checks
 
 4. **Security Configuration**
    - Automatic HTTPS/SSL certificates via Let's Encrypt
    - Security headers (HSTS, CSP, etc.)
    - Firewall-friendly configuration
+   - Private networking between nodes
+
+### Cluster Architecture
+
+```
+Internet → Reserved IP → Active Node (keepalived) → Caddy → Docker Services
+                            ↕ Failover
+                        Standby Nodes → keepalived monitors
+```
 
 ### Node States
 
-Nodes progress through these states during creation:
+Nodes progress through these states:
 
+- `provisioning`: Droplet is being created
 - `droplet-created`: DigitalOcean VM is running
 - `dns-configured`: DNS record created in Cloudflare  
 - `dns-ready`: DNS propagation verified
 - `infrastructure-ready`: Docker services deployed
 - `active`: All health checks passed, fully operational
 
-### Health Validation
+### Node Roles
 
-Dynia performs comprehensive two-sided health checks:
+- **Active**: Holds the Reserved IP, receives all traffic
+- **Standby**: Ready to take over if active node fails
 
-**Internal Health Check:**
-- Container state verification
-- Docker service connectivity
-- Internal network testing
-- Service readiness validation
+### Two-Word Node Identifiers
 
-**Public Health Check:**
-- DNS resolution from multiple resolvers (1.1.1.1, 8.8.8.8)
-- HTTPS endpoint accessibility
-- SSL certificate validation
-- Complete request/response cycle testing
+- **Format**: `<adjective>-<animal>` (e.g., `brave-panda`, `misty-owl`)
+- **Usage**: Friendly identification in commands and logs
+- **Hostname**: Becomes `clustername-nodeid` (e.g., `myapp-brave-panda`)
 
 ## 🔧 Advanced Usage
 
-### Repair and Recovery
-
-The repair system can recover from various failure scenarios:
+### Cluster Health Monitoring
 
 ```bash
-# Common repair scenarios:
-pnpm dynia node repair myapp --force
+# Check overall cluster health
+pnpm dynia cluster repair-ha myapp --check-only
 
-# Repairs can handle:
-# - Docker installation failures
-# - Service deployment issues  
-# - Network connectivity problems
-# - Certificate generation delays
-# - DNS propagation timeouts
+# Check individual node health
+pnpm dynia cluster node list --cluster myapp
+
+# View Reserved IP assignments
+pnpm dynia cluster reserved-ip list
+```
+
+### Manual Failover Testing
+
+```bash
+# Test failover by switching active nodes
+pnpm dynia cluster node activate --cluster myapp --node misty-owl
+
+# Verify the Reserved IP moved to the new node
+pnpm dynia cluster reserved-ip list
+```
+
+### Cluster Scaling
+
+```bash
+# Scale up: Add more nodes for redundancy
+pnpm dynia cluster node add --cluster myapp --count 2
+
+# Scale down: Remove unnecessary nodes
+pnpm dynia cluster node remove --cluster myapp --node brave-panda --confirm
+
+# Rebalance: Prepare all nodes after scaling
+pnpm dynia cluster prepare myapp
 ```
 
 ### Custom Configuration
@@ -243,9 +408,6 @@ pnpm dynia node repair myapp --force
 Environment variables for advanced configuration:
 
 ```bash
-# Custom domain (default: thaitype.dev)
-DYNIA_DOMAIN=mydomain.com
-
 # Custom DigitalOcean region (default: nyc3)  
 DYNIA_DO_REGION=sfo3
 
@@ -255,7 +417,36 @@ DYNIA_DO_SIZE=s-2vcpu-2gb
 
 ## 🐛 Troubleshooting
 
-### Common Issues
+### Cluster Issues
+
+1. **Reserved IP Not Assigned**
+   ```bash
+   # Check Reserved IP status
+   pnpm dynia cluster reserved-ip list
+   
+   # Manually assign to node
+   pnpm dynia cluster reserved-ip assign --cluster myapp --node brave-panda
+   ```
+
+2. **Node Not Responding**
+   ```bash
+   # Check cluster health
+   pnpm dynia cluster repair-ha myapp --check-only
+   
+   # Repair specific node
+   pnpm dynia cluster node prepare --cluster myapp --node brave-panda --force
+   ```
+
+3. **Failover Not Working**
+   ```bash
+   # Check keepalived status on nodes
+   pnpm dynia cluster node list --cluster myapp
+   
+   # Force failover to different node
+   pnpm dynia cluster node activate --cluster myapp --node misty-owl
+   ```
+
+### Single Node Issues
 
 1. **SSH Connection Timeout**
    ```bash
@@ -286,11 +477,11 @@ DYNIA_DO_SIZE=s-2vcpu-2gb
 ### Debug Mode
 
 ```bash
-# Enable verbose logging
-pnpm dynia node create --name debug-node --verbose
+# Enable verbose logging for any command
+pnpm dynia cluster create-ha --name debug-cluster --base-domain example.com --verbose
 
 # Dry run mode (test without actual changes)
-pnpm dynia node create --name test-node --dry-run
+pnpm dynia cluster node add --cluster myapp --dry-run
 ```
 
 ## 🤝 Contributing

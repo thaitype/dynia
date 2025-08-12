@@ -19,8 +19,13 @@ apt-get install -y \
 
 # Add Docker's official GPG key
 install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+# Fix GPG in non-interactive environments
+export GPG_TTY=$(tty || echo "/dev/null")
+export GNUPGHOME=$(mktemp -d)
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --batch --yes --dearmor -o /etc/apt/keyrings/docker.gpg
 chmod a+r /etc/apt/keyrings/docker.gpg
+# Clean up temporary GPG home
+rm -rf "$GNUPGHOME"
 
 # Set up Docker repository
 echo \

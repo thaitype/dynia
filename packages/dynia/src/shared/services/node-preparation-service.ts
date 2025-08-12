@@ -211,27 +211,28 @@ vrrp_instance VI_1 {
   }
 
   /**
-   * Test node readiness after preparation
+   * Test node readiness after preparation (internal infrastructure only)
    */
   async testNodeReadiness(nodeIp: string, nodeName: string): Promise<boolean> {
     this.logger.info(`Testing readiness of prepared node ${nodeName}...`);
     
     try {
-      // Use existing DockerInfrastructure health checks
+      // Use existing DockerInfrastructure internal health checks only
       const infrastructure = new DockerInfrastructure(
         nodeIp,
         nodeName,
-        'test.domain', // placeholder
+        'placeholder.domain', // placeholder - not used for internal testing
         this.logger
       );
       
-      const isHealthy = await infrastructure.testInfrastructure();
+      // Only test internal infrastructure, not public domain accessibility
+      const isHealthy = await infrastructure.testInternalHealth();
       
       if (isHealthy) {
-        this.logger.info(`✅ Node ${nodeName} is ready and healthy`);
+        this.logger.info(`✅ Node ${nodeName} is ready and healthy (internal infrastructure)`);
         return true;
       } else {
-        this.logger.error(`❌ Node ${nodeName} failed health checks`);
+        this.logger.error(`❌ Node ${nodeName} failed internal health checks`);
         return false;
       }
     } catch (error) {

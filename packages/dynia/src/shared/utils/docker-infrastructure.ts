@@ -40,9 +40,9 @@ export class DockerInfrastructure {
 
     // Step 2: Install Docker (with retry for transient package manager issues)
     await Helpers.retry(() => this.installDocker(), {
-      maxAttempts: 3,
-      baseDelay: 10000, // 10 seconds
-      maxDelay: 60000, // 1 minute max
+      maxAttempts: 2,
+      baseDelay: 5000, // 5 seconds
+      maxDelay: 10000, // 10 seconds max
       description: 'Docker installation',
     });
 
@@ -93,8 +93,13 @@ apt-get install -y \\
 
 # Add Docker's official GPG key
 install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+# Fix GPG in non-interactive environments
+export GPG_TTY=$(tty || echo "/dev/null")
+export GNUPGHOME=$(mktemp -d)
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --batch --yes --dearmor -o /etc/apt/keyrings/docker.gpg
 chmod a+r /etc/apt/keyrings/docker.gpg
+# Clean up temporary GPG home
+rm -rf "$GNUPGHOME"
 
 # Set up Docker repository
 echo \\
@@ -393,6 +398,7 @@ services:
       - "80:80"
       - "443:443"
       - "443:443/udp"  # For HTTP/3
+      - "2019:2019"    # Caddy admin interface
     volumes:
       - /opt/dynia/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
@@ -422,6 +428,8 @@ services:
   placeholder:
     image: nginx:alpine
     container_name: dynia-placeholder
+    ports:
+      - "8080:8080"
     volumes:
       - /opt/dynia/placeholder/index.html:/usr/share/nginx/html/index.html:ro
       - /opt/dynia/placeholder/nginx.conf:/etc/nginx/nginx.conf:ro
@@ -479,28 +487,74 @@ networks:
   /**
    * Test internal infrastructure health (containers, networking, services)
    */
-  private async testInternalHealth(): Promise<boolean> {
+  async testInternalHealth(): Promise<boolean> {
     try {
       this.logger.info('🔧 Phase 1: Testing internal infrastructure health...');
 
       // Step 1: Wait for containers to initialize
-      this.logger.info('⏳ Waiting for containers to initialize (45 seconds)...');
-      await Helpers.sleep(45000);
+      this.logger.info('⏳ Waiting for containers to initialize (15 seconds)...');
+      await Helpers.sleep(15000);
 
       // Step 2: Check container states and health with retry
       await Helpers.retry(
         async () => {
-          const caddyStatus = await this.ssh.executeCommand('cd /opt/dynia/caddy && docker compose ps --format json');
-          const placeholderStatus = await this.ssh.executeCommand(
-            'cd /opt/dynia/placeholder && docker compose ps --format json'
-          );
+          // Check if directories exist and have docker-compose files
+          try {
+            await this.ssh.executeCommand('test -f /opt/dynia/caddy/docker-compose.yml || test -f /opt/dynia/caddy/compose.yml');
+          } catch {
+            throw new Error('Caddy docker compose file not found in /opt/dynia/caddy/');
+          }
+
+          try {
+            await this.ssh.executeCommand('test -f /opt/dynia/placeholder/docker-compose.yml || test -f /opt/dynia/placeholder/compose.yml');
+          } catch {
+            throw new Error('Placeholder docker compose file not found in /opt/dynia/placeholder/');
+          }
+
+          // Get container status with better error handling
+          let caddyStatus: string;
+          let placeholderStatus: string;
+
+          try {
+            caddyStatus = await this.ssh.executeCommand('cd /opt/dynia/caddy && docker compose ps --format json');
+          } catch (error) {
+            throw new Error(`Failed to get Caddy container status: ${error}`);
+          }
+
+          try {
+            placeholderStatus = await this.ssh.executeCommand('cd /opt/dynia/placeholder && docker compose ps --format json');
+          } catch (error) {
+            throw new Error(`Failed to get Placeholder container status: ${error}`);
+          }
 
           this.logger.debug(`Caddy status: ${caddyStatus}`);
           this.logger.debug(`Placeholder status: ${placeholderStatus}`);
 
-          // Parse container status
-          const caddyInfo = JSON.parse(caddyStatus.trim() || '{}');
-          const placeholderInfo = JSON.parse(placeholderStatus.trim() || '{}');
+          // Parse container status with safer JSON parsing
+          let caddyInfo: any = {};
+          let placeholderInfo: any = {};
+
+          try {
+            const caddyTrimmed = caddyStatus.trim();
+            if (caddyTrimmed && caddyTrimmed !== '') {
+              caddyInfo = JSON.parse(caddyTrimmed);
+            } else {
+              throw new Error('Empty Caddy container status response');
+            }
+          } catch (error) {
+            throw new Error(`Failed to parse Caddy container status: ${error}. Raw output: "${caddyStatus}"`);
+          }
+
+          try {
+            const placeholderTrimmed = placeholderStatus.trim();
+            if (placeholderTrimmed && placeholderTrimmed !== '') {
+              placeholderInfo = JSON.parse(placeholderTrimmed);
+            } else {
+              throw new Error('Empty Placeholder container status response');
+            }
+          } catch (error) {
+            throw new Error(`Failed to parse Placeholder container status: ${error}. Raw output: "${placeholderStatus}"`);
+          }
 
           // Verify containers are running
           if (caddyInfo.State !== 'running') {
@@ -521,9 +575,9 @@ networks:
           }
         },
         {
-          maxAttempts: 8,
-          baseDelay: 10000, // 10 seconds
-          maxDelay: 30000, // max 30 seconds
+          maxAttempts: 4,
+          baseDelay: 3000, // 3 seconds
+          maxDelay: 8000, // max 8 seconds
           description: 'Container readiness verification',
         }
       );
@@ -542,9 +596,9 @@ networks:
           this.logger.info('✅ Caddy admin interface responding');
         },
         {
-          maxAttempts: 6,
-          baseDelay: 5000, // 5 seconds
-          maxDelay: 15000, // max 15 seconds
+          maxAttempts: 3,
+          baseDelay: 2000, // 2 seconds
+          maxDelay: 5000, // max 5 seconds
           description: 'Internal service connectivity test',
         }
       );
@@ -599,9 +653,9 @@ networks:
           this.logger.info('✅ HTTPS endpoint accessible from server');
         },
         {
-          maxAttempts: 12, // Up to 12 attempts for cert generation
-          baseDelay: 15000, // 15 seconds
-          maxDelay: 60000, // max 1 minute between attempts
+          maxAttempts: 4, // Up to 4 attempts for cert generation
+          baseDelay: 5000, // 5 seconds
+          maxDelay: 15000, // max 15 seconds between attempts
           description: 'HTTPS endpoint accessibility test',
         }
       );
@@ -618,9 +672,9 @@ networks:
           this.logger.info('✅ SSL certificate is valid');
         },
         {
-          maxAttempts: 5,
-          baseDelay: 10000,
-          maxDelay: 30000,
+          maxAttempts: 3,
+          baseDelay: 3000,
+          maxDelay: 8000,
           description: 'SSL certificate validation',
         }
       );
