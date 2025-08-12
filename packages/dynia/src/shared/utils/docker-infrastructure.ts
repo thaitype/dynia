@@ -880,7 +880,7 @@ networks:
     const routeBlocks = clusterRoutes.map(route => {
       const healthPath = route.healthPath || '/healthz';
       return `${route.host} {
-    reverse_proxy localhost:8080
+    reverse_proxy dynia-placeholder:80
     
     # Health check endpoint
     handle_path /dynia-health {

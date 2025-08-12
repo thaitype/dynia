@@ -48,7 +48,7 @@ export class ClusterDeployCommand extends BaseCommand<ClusterDeployOptions> {
     // Determine deployment target domain
     let targetDomain: string;
     if (placeholder) {
-      targetDomain = `dynia-placeholder.${name}.${cluster.baseDomain}`;
+      targetDomain = `dynia-placeholder-${name}.${cluster.baseDomain}`;
       this.logger.info(`Deploying placeholder service to cluster: ${name}`);
       this.logger.info(`Target domain: ${targetDomain}`);
     } else {
