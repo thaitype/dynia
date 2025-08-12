@@ -36,6 +36,11 @@ export class NodeListCommand extends BaseCommand {
       inactive: '🔴 Inactive', 
       provisioning: '🟡 Provisioning',
       failed: '❌ Failed',
+      // Progressive creation states
+      'droplet-created': '🟠 Droplet Created',
+      'dns-configured': '🟠 DNS Configured', 
+      'dns-ready': '🟠 DNS Ready',
+      'infrastructure-ready': '🟠 Infrastructure Ready',
     };
     
     return statusSymbols[status as keyof typeof statusSymbols] || status;

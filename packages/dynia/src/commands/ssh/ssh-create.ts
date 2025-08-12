@@ -21,6 +21,9 @@ export class SSHCreateCommand extends BaseCommand<SSHCreateOptions> {
     this.logger.info(`Creating SSH key: ${keyName}`);
 
     const keyGenerator = new SSHKeyGenerator(this.logger);
+    
+    // Validate ssh-keygen is available
+    await keyGenerator.validateSSHKeygenAvailable();
 
     // Check if key already exists
     const existingKeyPair = await keyGenerator.loadKeyPair(keyName);
@@ -50,14 +53,13 @@ export class SSHCreateCommand extends BaseCommand<SSHCreateOptions> {
       }
     }
 
-    // Generate new key pair
+    // Generate new key pair using RSA 4096 by default
     const keyPair = await keyGenerator.generateKeyPair({ 
-      keyName, 
+      keyName,
+      keyType: 'rsa',
+      keySize: 4096,
       comment: `${keyName}@dynia-cli` 
     });
-
-    // Save key pair locally
-    await keyGenerator.saveKeyPair(keyPair, keyName);
 
     // Upload to DigitalOcean
     await this.uploadToDigitalOcean(keyPair, keyName);

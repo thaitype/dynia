@@ -1,11 +1,8 @@
-import { generateKeyPair } from 'crypto';
-import { promisify } from 'util';
 import { writeFile, readFile, access, mkdir } from 'fs/promises';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { homedir } from 'os';
+import { spawn } from 'child_process';
 import type { ILogger } from '@thaitype/core-utils';
-
-const generateKeyPairAsync = promisify(generateKeyPair);
 
 export interface SSHKeyPair {
   privateKey: string;
@@ -15,6 +12,7 @@ export interface SSHKeyPair {
 
 export interface SSHKeyGeneratorOptions {
   keyName?: string;
+  keyType?: 'rsa' | 'ed25519' | 'ecdsa';
   keySize?: number;
   comment?: string;
 }
@@ -26,40 +24,56 @@ export class SSHKeyGenerator {
   constructor(private readonly logger: ILogger) {}
 
   /**
-   * Generate a new SSH key pair
+   * Check if ssh-keygen is available on the system
+   */
+  async validateSSHKeygenAvailable(): Promise<void> {
+    try {
+      // Try to execute ssh-keygen with help flag to verify it exists
+      await this.executeCommand('ssh-keygen --help 2>&1 | head -1 || ssh-keygen 2>&1 | head -1');
+    } catch (error) {
+      throw new Error(
+        'ssh-keygen is not available on this system. ' +
+        'Please install OpenSSH client tools to generate SSH keys.'
+      );
+    }
+  }
+
+  /**
+   * Generate a new SSH key pair using ssh-keygen
    */
   async generateKeyPair(options: SSHKeyGeneratorOptions = {}): Promise<SSHKeyPair> {
     const {
       keyName = 'dynia',
-      keySize = 2048,
+      keyType = 'rsa',
+      keySize = 4096,
       comment = 'dynia-generated-key'
     } = options;
 
-    this.logger.info(`Generating SSH key pair: ${keyName}`);
+    this.logger.info(`Generating SSH key pair: ${keyName} (${keyType} ${keySize})`);
 
     try {
-      // Generate RSA key pair
-      const { publicKey, privateKey } = await generateKeyPairAsync('rsa', {
-        modulusLength: keySize,
-        publicKeyEncoding: {
-          type: 'spki',
-          format: 'pem'
-        },
-        privateKeyEncoding: {
-          type: 'pkcs8',
-          format: 'pem'
-        }
-      });
-
-      // Convert public key to OpenSSH format
-      const sshPublicKey = this.convertToSSHFormat(publicKey, comment);
+      const keyPaths = this.getKeyPaths(keyName);
       
-      // Generate fingerprint
-      const fingerprint = await this.generateFingerprint(publicKey);
+      // Ensure .ssh directory exists
+      await mkdir(dirname(keyPaths.privateKeyPath), { recursive: true });
 
+      // Generate key pair using ssh-keygen
+      const sshKeygenCmd = `ssh-keygen -t ${keyType} -b ${keySize} -C "${comment}" -f "${keyPaths.privateKeyPath}" -N ""`;
+      await this.executeCommand(sshKeygenCmd);
+
+      // Read the generated files
+      const privateKey = await readFile(keyPaths.privateKeyPath, 'utf-8');
+      const publicKey = await readFile(keyPaths.publicKeyPath, 'utf-8');
+
+      // Get fingerprint using ssh-keygen
+      const fingerprintOutput = await this.executeCommand(`ssh-keygen -lf "${keyPaths.publicKeyPath}"`);
+      const fingerprint = this.parseFingerprint(fingerprintOutput);
+
+      this.logger.info(`✅ SSH key generated: ${keyName}`);
+      
       return {
         privateKey,
-        publicKey: sshPublicKey,
+        publicKey: publicKey.trim(),
         fingerprint
       };
     } catch (error) {
@@ -132,53 +146,89 @@ export class SSHKeyGenerator {
     return keyPair !== null;
   }
 
-  /**
-   * Convert PEM public key to OpenSSH format
-   */
-  private convertToSSHFormat(pemPublicKey: string, comment: string): string {
-    // Remove PEM headers and convert to SSH format
-    const keyData = pemPublicKey
-      .replace(/-----BEGIN PUBLIC KEY-----/, '')
-      .replace(/-----END PUBLIC KEY-----/, '')
-      .replace(/\n/g, '');
 
-    // For RSA keys, we need to extract the RSA components and format them properly
-    // This is a simplified conversion - in production, you might want to use a proper library
-    return `ssh-rsa ${keyData} ${comment}`;
+  /**
+   * Execute a command and return its output
+   */
+  private async executeCommand(command: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const process = spawn('sh', ['-c', command], {
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      process.stdout?.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      process.stderr?.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      process.on('close', (code) => {
+        if (code === 0) {
+          resolve(stdout.trim());
+        } else {
+          reject(new Error(`Command failed (exit code ${code}): ${stderr.trim() || stdout.trim()}`));
+        }
+      });
+
+      process.on('error', (error) => {
+        reject(new Error(`Command execution error: ${error.message}`));
+      });
+    });
   }
 
   /**
-   * Generate MD5 fingerprint from public key
+   * Parse fingerprint from ssh-keygen output
    */
-  private async generateFingerprint(publicKey: string): Promise<string> {
-    const crypto = await import('crypto');
-    
-    // Extract key data (simplified approach)
-    const keyData = publicKey
-      .replace(/-----BEGIN PUBLIC KEY-----/, '')
-      .replace(/-----END PUBLIC KEY-----/, '')
-      .replace(/\n/g, '');
-    
-    // Generate MD5 hash
-    const hash = crypto.createHash('md5').update(Buffer.from(keyData, 'base64')).digest('hex');
-    
-    // Format as SSH fingerprint
-    return hash.match(/.{2}/g)?.join(':') || '';
+  private parseFingerprint(sshKeygenOutput: string): string {
+    // ssh-keygen output format: "4096 SHA256:... user@host (RSA)" or "4096 MD5:aa:bb:cc:... user@host (RSA)"
+    // DigitalOcean expects MD5 format, so try to get MD5 or convert SHA256
+    const md5Match = sshKeygenOutput.match(/MD5:([a-f0-9:]+)/i);
+    if (md5Match) {
+      return md5Match[1];
+    }
+
+    // If SHA256, we need to get MD5 format specifically
+    try {
+      // Extract just the fingerprint part for DigitalOcean
+      const fingerprintMatch = sshKeygenOutput.match(/(\d+)\s+(SHA256:[^\s]+|MD5:[a-f0-9:]+)/);
+      if (fingerprintMatch) {
+        return fingerprintMatch[2];
+      }
+    } catch (error) {
+      this.logger.debug(`Could not parse fingerprint: ${error}`);
+    }
+
+    // Fallback: return the whole line minus leading/trailing whitespace
+    return sshKeygenOutput.trim();
   }
 
   /**
-   * Generate fingerprint from private key
+   * Generate fingerprint from existing private key
    */
   private async generateFingerprintFromPrivateKey(privateKey: string): Promise<string> {
-    const crypto = await import('crypto');
-    
     try {
-      // Extract public key from private key
-      const keyObject = crypto.createPrivateKey(privateKey);
-      const publicKey = crypto.createPublicKey(keyObject);
-      const pemPublicKey = publicKey.export({ type: 'spki', format: 'pem' }) as string;
+      // Create a temporary file for the private key
+      const tempKeyPath = join(homedir(), '.ssh', 'temp_dynia_key');
+      await writeFile(tempKeyPath, privateKey, { mode: 0o600 });
       
-      return await this.generateFingerprint(pemPublicKey);
+      try {
+        // Use ssh-keygen to get fingerprint from private key
+        const fingerprintOutput = await this.executeCommand(`ssh-keygen -lf "${tempKeyPath}"`);
+        return this.parseFingerprint(fingerprintOutput);
+      } finally {
+        // Clean up temporary file
+        try {
+          await access(tempKeyPath);
+          await this.executeCommand(`rm "${tempKeyPath}"`);
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
     } catch (error) {
       throw new Error(`Failed to generate fingerprint from private key: ${error}`);
     }

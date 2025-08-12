@@ -1,14 +1,21 @@
+import { join } from 'path';
+import { homedir } from 'os';
 import type { ILogger } from '@thaitype/core-utils';
 
 /**
  * SSH command execution utility
  */
 export class SSHExecutor {
+  private readonly keyPath: string;
+
   constructor(
     private readonly ip: string,
     private readonly logger: ILogger,
-    private readonly username: string = 'root'
-  ) {}
+    private readonly username: string = 'root',
+    keyName: string = 'dynia'
+  ) {
+    this.keyPath = join(homedir(), '.ssh', keyName);
+  }
 
   /**
    * Execute a command via SSH
@@ -22,6 +29,7 @@ export class SSHExecutor {
     
     return new Promise((resolve, reject) => {
       const sshArgs = [
+        '-i', this.keyPath,
         '-o', 'StrictHostKeyChecking=no',
         '-o', 'UserKnownHostsFile=/dev/null',
         '-o', 'ConnectTimeout=30',
@@ -68,6 +76,7 @@ export class SSHExecutor {
     
     return new Promise((resolve, reject) => {
       const scpArgs = [
+        '-i', this.keyPath,
         '-o', 'StrictHostKeyChecking=no',
         '-o', 'UserKnownHostsFile=/dev/null',
         '-o', 'ConnectTimeout=30',

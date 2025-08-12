@@ -45,18 +45,22 @@ export class NodeCreateCommand extends BaseCommand<NodeCreateOptions> {
 
     // Step 1: Create DigitalOcean droplet
     const dropletInfo = await this.createDroplet(finalNodeName);
+    await this.saveProgressiveNodeState(finalNodeName, dropletInfo.ip, healthPath, 'droplet-created');
     
     // Step 2: Create/update Cloudflare DNS A record
     await this.createDnsRecord(finalNodeName, dropletInfo.ip);
+    await this.saveProgressiveNodeState(finalNodeName, dropletInfo.ip, healthPath, 'dns-configured');
     
     // Step 3: Wait for DNS propagation
     await this.waitForDnsPropagation(finalNodeName, dropletInfo.ip);
+    await this.saveProgressiveNodeState(finalNodeName, dropletInfo.ip, healthPath, 'dns-ready');
     
     // Step 4: Set up Docker infrastructure (Caddy + placeholder)
     await this.setupDockerInfrastructure(finalNodeName, dropletInfo.ip);
+    await this.saveProgressiveNodeState(finalNodeName, dropletInfo.ip, healthPath, 'infrastructure-ready');
     
-    // Step 5: Save node state
-    await this.saveNodeState(finalNodeName, dropletInfo.ip, healthPath);
+    // Step 5: Final state update
+    await this.saveProgressiveNodeState(finalNodeName, dropletInfo.ip, healthPath, 'active');
 
     this.logger.info(`✅ Node ${finalNodeName} created successfully`);
     this.logger.info(`   IP: ${dropletInfo.ip}`);
@@ -181,15 +185,24 @@ export class NodeCreateCommand extends BaseCommand<NodeCreateOptions> {
   }
 
   /**
-   * Save node state to local JSON
+   * Save progressive node state during creation
    */
-  private async saveNodeState(name: string, ip: string, healthPath: string): Promise<void> {
+  private async saveProgressiveNodeState(
+    name: string, 
+    ip: string, 
+    healthPath: string, 
+    status: 'droplet-created' | 'dns-configured' | 'dns-ready' | 'infrastructure-ready' | 'active'
+  ): Promise<void> {
+    // Check if node already exists to preserve createdAt timestamp
+    const existingNodes = await this.stateManager.getNodes();
+    const existingNode = existingNodes.find(n => n.name === name);
+    
     const node: Node = {
       name,
       ip,
       fqdn: `${name}.${this.config.public.cloudflare.domain}`,
-      createdAt: Helpers.generateTimestamp(),
-      status: 'active',
+      createdAt: existingNode?.createdAt || Helpers.generateTimestamp(),
+      status,
       healthPath,
       caddy: {
         domain: `${name}.${this.config.public.cloudflare.domain}`,
@@ -202,8 +215,10 @@ export class NodeCreateCommand extends BaseCommand<NodeCreateOptions> {
 
     await this.conditionalExecute(
       () => this.stateManager.upsertNode(node),
-      `save node ${name} to state`
+      `save node ${name} to state (status: ${status})`
     );
+    
+    this.logger.info(`💾 Node state saved: ${status}`);
   }
 
   protected async validatePrerequisites(): Promise<void> {
