@@ -10,6 +10,7 @@ import { ClusterNodeListCommand } from './cluster-node-list.js';
 import { ClusterNodeRemoveCommand } from './cluster-node-remove.js';
 import { ClusterNodeActivateCommand } from './cluster-node-activate.js';
 import { ClusterReservedIpAssignCommand } from './cluster-reserved-ip-assign.js';
+import { ClusterReservedIpListCommand } from './cluster-reserved-ip-list.js';
 import { ClusterDeployCommand } from './cluster-deploy.js';
 import { ClusterRepairHaCommand } from './cluster-repair-ha.js';
 
@@ -266,6 +267,27 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
                     'Assign Reserved IP to specific node'
                   ),
               handler: createCommandHandler(ClusterReservedIpAssignCommand),
+            })
+            .command({
+              command: 'list',
+              aliases: ['ls'],
+              describe: 'List all Reserved IPs and their assignment status',
+              builder: yargs =>
+                yargs
+                  .option('region', {
+                    type: 'string',
+                    describe: 'Filter by DigitalOcean region (e.g., nyc3, sgp1)',
+                  })
+                  .option('status', {
+                    type: 'string',
+                    choices: ['assigned', 'unassigned', 'all'],
+                    describe: 'Filter by assignment status',
+                    default: 'all',
+                  })
+                  .example('$0 cluster reserved-ip list', 'List all Reserved IPs')
+                  .example('$0 cluster reserved-ip list --region nyc3', 'List Reserved IPs in NYC region')
+                  .example('$0 cluster reserved-ip list --status unassigned', 'List available Reserved IPs'),
+              handler: createCommandHandler(ClusterReservedIpListCommand),
             })
             .demandCommand(1, 'Please specify a Reserved IP action')
             .help(),

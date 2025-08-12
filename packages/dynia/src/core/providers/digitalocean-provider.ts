@@ -175,24 +175,6 @@ export class DigitalOceanProvider implements IDigitalOceanProvider {
     return result;
   }
 
-  /**
-   * Create a new Reserved IP and assign it to a droplet in one atomic operation
-   */
-  async createReservedIpWithDroplet(dropletId: string, region: string): Promise<ReservedIpInfo> {
-    this.logger.info(`Creating Reserved IP with immediate assignment to droplet ${dropletId} in region: ${region}`);
-
-    const body = {
-      droplet_id: parseInt(dropletId, 10), // DigitalOcean API expects numeric droplet ID
-      region,
-    };
-
-    const response = await this.apiRequest('POST', '/reserved_ips', body);
-    const reservedIp = response.reserved_ip;
-
-    const result = this.mapReservedIpResponse(reservedIp);
-    this.logger.info(`✅ Created and assigned Reserved IP: ${result.ip} (${result.id}) to droplet ${dropletId}`);
-    return result;
-  }
 
   /**
    * List all Reserved IPs
@@ -207,15 +189,6 @@ export class DigitalOceanProvider implements IDigitalOceanProvider {
     return reservedIps.map((ip: any) => this.mapReservedIpResponse(ip));
   }
 
-  /**
-   * Get Reserved IP information by ID
-   */
-  async getReservedIp(reservedIpId: string): Promise<ReservedIpInfo> {
-    this.logger.debug(`Getting Reserved IP: ${reservedIpId}`);
-
-    const response = await this.apiRequest('GET', `/reserved_ips/${reservedIpId}`);
-    return this.mapReservedIpResponse(response.reserved_ip);
-  }
 
   /**
    * Assign Reserved IP to a droplet
@@ -224,8 +197,8 @@ export class DigitalOceanProvider implements IDigitalOceanProvider {
     this.logger.info(`Assigning Reserved IP ${reservedIpId} to droplet ${dropletId}`);
 
     const body = {
-      resource_type: 'droplet',
-      resource_id: parseInt(dropletId, 10), // DigitalOcean API expects numeric droplet ID
+      // resource_type: 'droplet',
+      droplet_id: parseInt(dropletId, 10), // DigitalOcean API expects numeric droplet ID
     };
 
     await this.apiRequest('POST', `/reserved_ips/${reservedIpId}/actions`, {
@@ -249,15 +222,6 @@ export class DigitalOceanProvider implements IDigitalOceanProvider {
     this.logger.info(`✅ Reserved IP ${reservedIpId} unassigned`);
   }
 
-  /**
-   * Delete Reserved IP
-   */
-  async deleteReservedIp(reservedIpId: string): Promise<void> {
-    this.logger.info(`Deleting Reserved IP: ${reservedIpId}`);
-
-    await this.apiRequest('DELETE', `/reserved_ips/${reservedIpId}`);
-    this.logger.info(`✅ Reserved IP ${reservedIpId} deleted`);
-  }
 
   // VPC management
 
@@ -330,6 +294,8 @@ export class DigitalOceanProvider implements IDigitalOceanProvider {
     const url = `${this.baseUrl}${endpoint}`;
 
     this.logger.debug(`DO API: ${method} ${endpoint}`);
+
+    console.log(`body:`, body);
 
     const response = await fetch(url, {
       method,
