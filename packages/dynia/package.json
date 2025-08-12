@@ -1,6 +1,6 @@
 {
   "name": "dynia",
-  "description": "A TypeScript framework for building reusable, type-safe Kubernetes infrastructure — without the YAML mess.",
+  "description": "A cloud infrastructure management CLI for automated deployment and High Availability cluster orchestration with Docker-based services.",
   "version": "0.20.1",
   "type": "module",
   "main": "./dist/cjs/index.js",
@@ -61,13 +61,15 @@
     "zod": "^3.24.2"
   },
   "keywords": [
-    "kubernetes",
+    "cloud-infrastructure",
+    "docker",
+    "digitalocean",
+    "cloudflare", 
     "dynia",
     "cli",
     "typescript",
-    "framework",
-    "typesafe",
-    "secret-management",
+    "high-availability",
+    "cluster-management",
     "infrastructure-as-code"
   ],
   "license": "Apache-2.0"
