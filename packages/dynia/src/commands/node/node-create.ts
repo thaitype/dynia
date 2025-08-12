@@ -1,6 +1,7 @@
 import { BaseCommand } from '../../shared/base/base-command.js';
 import { NodeNameSchema, HealthPathSchema, ValidationUtils } from '../../shared/utils/validation.js';
 import { Helpers } from '../../shared/utils/helpers.js';
+import { DockerInfrastructure } from '../../shared/utils/docker-infrastructure.js';
 import { createDigitalOceanProvider } from '../../core/providers/digitalocean-provider.js';
 import { createCloudflareProvider } from '../../core/providers/cloudflare-provider.js';
 import type { Node } from '../../shared/types/index.js';
@@ -86,6 +87,7 @@ export class NodeCreateCommand extends BaseCommand<NodeCreateOptions> {
       region: this.config.public.digitalOcean.region,
       size: this.config.public.digitalOcean.size,
       image: 'ubuntu-22-04-x64', // Latest Ubuntu LTS
+      sshKeys: [this.config.secrets.sshKeyId],
     });
 
     // Wait for it to become active
@@ -153,8 +155,7 @@ export class NodeCreateCommand extends BaseCommand<NodeCreateOptions> {
   /**
    * Set up Docker infrastructure (network, Caddy, placeholder)
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  private async setupDockerInfrastructure(_name: string, _ip: string): Promise<void> {
+  private async setupDockerInfrastructure(name: string, ip: string): Promise<void> {
     this.logger.info('Setting up Docker infrastructure...');
     
     if (this.dryRun) {
@@ -162,14 +163,21 @@ export class NodeCreateCommand extends BaseCommand<NodeCreateOptions> {
       return;
     }
 
-    // In a real implementation, this would:
-    // 1. SSH to the droplet
-    // 2. Install Docker and Docker Compose
-    // 3. Create the 'edge' network
-    // 4. Deploy Caddy with initial configuration
-    // 5. Deploy placeholder service
-    
-    throw new Error('Docker infrastructure setup not yet implemented.');
+    const infrastructure = new DockerInfrastructure(
+      ip,
+      name,
+      this.config.public.cloudflare.domain,
+      this.logger
+    );
+
+    // Deploy complete infrastructure
+    await infrastructure.setupInfrastructure();
+
+    // Test that everything is working
+    const healthCheck = await infrastructure.testInfrastructure();
+    if (!healthCheck) {
+      throw new Error('Infrastructure health check failed after deployment');
+    }
   }
 
   /**
@@ -212,6 +220,10 @@ export class NodeCreateCommand extends BaseCommand<NodeCreateOptions> {
     
     if (!this.config.secrets.cloudflareZoneId) {
       throw new Error('DYNIA_CF_ZONE_ID environment variable is required');
+    }
+    
+    if (!this.config.secrets.sshKeyId) {
+      throw new Error('DYNIA_SSH_KEY_ID environment variable is required');
     }
   }
 }

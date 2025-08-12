@@ -10,6 +10,17 @@ const SecretConfigSchema = z.object({
   digitalOceanToken: z.string().min(1, 'DYNIA_DO_TOKEN is required'),
   cloudflareToken: z.string().min(1, 'DYNIA_CF_TOKEN is required'),
   cloudflareZoneId: z.string().min(1, 'DYNIA_CF_ZONE_ID is required'),
+  sshKeyId: z.string().min(1, 'DYNIA_SSH_KEY_ID is required'),
+});
+
+/**
+ * Schema for validating environment variables with optional SSH key
+ */
+const SecretConfigSchemaOptionalSSH = z.object({
+  digitalOceanToken: z.string().min(1, 'DYNIA_DO_TOKEN is required'),
+  cloudflareToken: z.string().optional(),
+  cloudflareZoneId: z.string().optional(), 
+  sshKeyId: z.string().optional(),
 });
 
 /**
@@ -46,6 +57,7 @@ export class ConfigLoader {
         digitalOceanToken: process.env.DYNIA_DO_TOKEN || '',
         cloudflareToken: process.env.DYNIA_CF_TOKEN || '',
         cloudflareZoneId: process.env.DYNIA_CF_ZONE_ID || '',
+        sshKeyId: process.env.DYNIA_SSH_KEY_ID || '',
       };
 
       return SecretConfigSchema.parse(secrets);
@@ -60,6 +72,44 @@ export class ConfigLoader {
         throw new Error(
           `Missing required environment variables:\n${missingVars.map(v => `  - ${v}`).join('\n')}\n\n` +
           'Please set these environment variables before running Dynia.'
+        );
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Load secrets from environment variables with optional SSH key
+   */
+  private loadSecretsWithOptionalSSHKey(): SecretConfig {
+    try {
+      const secrets = {
+        digitalOceanToken: process.env.DYNIA_DO_TOKEN || '',
+        cloudflareToken: process.env.DYNIA_CF_TOKEN || '',
+        cloudflareZoneId: process.env.DYNIA_CF_ZONE_ID || '',
+        sshKeyId: process.env.DYNIA_SSH_KEY_ID || '',
+      };
+
+      const parsed = SecretConfigSchemaOptionalSSH.parse(secrets);
+      
+      // Ensure all required fields for SecretConfig interface exist
+      return {
+        digitalOceanToken: parsed.digitalOceanToken,
+        cloudflareToken: parsed.cloudflareToken || '',
+        cloudflareZoneId: parsed.cloudflareZoneId || '',
+        sshKeyId: parsed.sshKeyId || '',
+      };
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        const missingVars = error.issues.map(issue => {
+          const field = issue.path[0];
+          const envVar = this.fieldToEnvVar(field as string);
+          return `${envVar}`;
+        });
+
+        throw new Error(
+          `Missing required environment variables for SSH command:\n${missingVars.map(v => `  - ${v}`).join('\n')}\n\n` +
+          'Please set these environment variables before running SSH commands.'
         );
       }
       throw error;
@@ -101,6 +151,23 @@ export class ConfigLoader {
   }
 
   /**
+   * Load configuration with optional SSH key ID (for SSH commands)
+   */
+  loadConfigWithOptionalSSHKey(): RuntimeConfig {
+    this.logger.debug('Loading configuration with optional SSH key...');
+    
+    const secrets = this.loadSecretsWithOptionalSSHKey();
+    const publicConfig = this.loadPublicConfig();
+
+    this.logger.debug('Configuration loaded successfully');
+    
+    return {
+      secrets,
+      public: publicConfig,
+    };
+  }
+
+  /**
    * Validate that all required secrets are present
    */
   validateSecrets(): void {
@@ -115,6 +182,7 @@ export class ConfigLoader {
       digitalOceanToken: 'DYNIA_DO_TOKEN',
       cloudflareToken: 'DYNIA_CF_TOKEN',
       cloudflareZoneId: 'DYNIA_CF_ZONE_ID',
+      sshKeyId: 'DYNIA_SSH_KEY_ID',
     };
     
     return mapping[field] || field;
@@ -135,6 +203,7 @@ export class ConfigLoader {
       'DYNIA_DO_TOKEN',
       'DYNIA_CF_TOKEN', 
       'DYNIA_CF_ZONE_ID',
+      'DYNIA_SSH_KEY_ID',
     ];
   }
 }

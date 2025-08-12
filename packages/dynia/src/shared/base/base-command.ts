@@ -24,7 +24,17 @@ export abstract class BaseCommand<TOptions = Record<string, unknown>> {
     
     // Load configuration from environment
     const configLoader = new ConfigLoader(this.logger);
-    this.config = configLoader.loadConfig();
+    try {
+      this.config = configLoader.loadConfig();
+    } catch (error) {
+      // For SSH commands, try loading with optional SSH key
+      if (error instanceof Error && error.message.includes('DYNIA_SSH_KEY_ID')) {
+        this.logger.debug('SSH_KEY_ID not found, loading config with optional SSH key for SSH commands');
+        this.config = configLoader.loadConfigWithOptionalSSHKey();
+      } else {
+        throw error;
+      }
+    }
     
     // Initialize state manager
     const rootDir = argv.root || process.cwd();

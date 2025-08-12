@@ -86,6 +86,7 @@ export interface SecretConfig {
   digitalOceanToken: string;
   cloudflareToken: string;
   cloudflareZoneId: string;
+  sshKeyId: string; // DigitalOcean SSH key ID or fingerprint
 }
 
 /**

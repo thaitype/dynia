@@ -9,6 +9,7 @@ import { generateCommand } from './generate.js';
 import { nodeCommand } from '../commands/node/index.js';
 import { appCommand } from '../commands/app/index.js';
 import { slbCommand } from '../commands/slb/index.js';
+import { sshCommand } from '../commands/ssh/index.js';
 
 // import { secretCommand } from './secret/index.js';
 
@@ -60,6 +61,7 @@ export function cliEntryPoint(argv: string[], options: CliEntryPointOptions): Pr
         argv.version = options.version;
       })
       .command(generateCommand)
+      .command(sshCommand)
       .command(nodeCommand)
       .command(appCommand)
       .command(slbCommand)

@@ -1,6 +1,6 @@
 import type { ILogger } from '@thaitype/core-utils';
 
-import type { IDigitalOceanProvider, DropletInfo } from './interfaces.js';
+import type { IDigitalOceanProvider, DropletInfo, SSHKeyInfo } from './interfaces.js';
 import { Helpers } from '../../shared/utils/helpers.js';
 
 /**
@@ -99,13 +99,73 @@ export class DigitalOceanProvider implements IDigitalOceanProvider {
   }
 
   /**
+   * Create SSH key in DigitalOcean account
+   */
+  async createSSHKey(options: {
+    name: string;
+    publicKey: string;
+  }): Promise<SSHKeyInfo> {
+    this.logger.info(`Creating SSH key: ${options.name}`);
+
+    const body = {
+      name: options.name,
+      public_key: options.publicKey,
+    };
+
+    const response = await this.apiRequest('POST', '/account/keys', body);
+    const sshKey = response.ssh_key;
+
+    return this.mapSSHKeyResponse(sshKey);
+  }
+
+  /**
+   * List SSH keys in DigitalOcean account
+   */
+  async listSSHKeys(): Promise<SSHKeyInfo[]> {
+    this.logger.debug('Listing SSH keys');
+
+    const response = await this.apiRequest('GET', '/account/keys');
+    const sshKeys = response.ssh_keys || [];
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return sshKeys.map((key: any) => this.mapSSHKeyResponse(key));
+  }
+
+  /**
+   * Get SSH key by ID or fingerprint
+   */
+  async getSSHKey(idOrFingerprint: string): Promise<SSHKeyInfo | null> {
+    this.logger.debug(`Getting SSH key: ${idOrFingerprint}`);
+
+    try {
+      const response = await this.apiRequest('GET', `/account/keys/${idOrFingerprint}`);
+      return this.mapSSHKeyResponse(response.ssh_key);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (_error) {
+      this.logger.debug(`SSH key not found: ${idOrFingerprint}`);
+      return null;
+    }
+  }
+
+  /**
+   * Delete SSH key from DigitalOcean account
+   */
+  async deleteSSHKey(idOrFingerprint: string): Promise<void> {
+    this.logger.info(`Deleting SSH key: ${idOrFingerprint}`);
+
+    await this.apiRequest('DELETE', `/account/keys/${idOrFingerprint}`);
+    this.logger.info(`SSH key ${idOrFingerprint} deletion completed`);
+  }
+
+  /**
    * Make an API request to DigitalOcean
    */
   private async apiRequest(
     method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     endpoint: string,
     body?: unknown
-  ): Promise<any> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ): Promise<{ droplet?: any; droplets?: any; ssh_key?: any; ssh_keys?: any }> {
     const url = `${this.baseUrl}${endpoint}`;
     
     this.logger.debug(`DO API: ${method} ${endpoint}`);
@@ -142,8 +202,10 @@ export class DigitalOceanProvider implements IDigitalOceanProvider {
   /**
    * Map DigitalOcean API droplet response to our interface
    */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private mapDropletResponse(droplet: any): DropletInfo {
     // Find the public IPv4 address
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const publicNetwork = droplet.networks?.v4?.find((network: any) => network.type === 'public');
     const ip = publicNetwork?.ip_address || '';
 
@@ -173,6 +235,19 @@ export class DigitalOceanProvider implements IDigitalOceanProvider {
       default:
         return 'new'; // Default fallback
     }
+  }
+
+  /**
+   * Map DigitalOcean API SSH key response to our interface
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private mapSSHKeyResponse(sshKey: any): SSHKeyInfo {
+    return {
+      id: sshKey.id.toString(),
+      name: sshKey.name,
+      fingerprint: sshKey.fingerprint,
+      publicKey: sshKey.public_key,
+    };
   }
 }
 

@@ -16,6 +16,16 @@ export interface DropletInfo {
 }
 
 /**
+ * DigitalOcean SSH key information
+ */
+export interface SSHKeyInfo {
+  id: string;
+  name: string;
+  fingerprint: string;
+  publicKey: string;
+}
+
+/**
  * DigitalOcean provider interface
  */
 export interface IDigitalOceanProvider {
@@ -44,6 +54,29 @@ export interface IDigitalOceanProvider {
    * Wait for droplet to reach active status
    */
   waitForDropletActive(dropletId: string, timeoutMs?: number): Promise<DropletInfo>;
+
+  /**
+   * Create SSH key in DigitalOcean account
+   */
+  createSSHKey(options: {
+    name: string;
+    publicKey: string;
+  }): Promise<SSHKeyInfo>;
+
+  /**
+   * List SSH keys in DigitalOcean account
+   */
+  listSSHKeys(): Promise<SSHKeyInfo[]>;
+
+  /**
+   * Get SSH key by ID or fingerprint
+   */
+  getSSHKey(idOrFingerprint: string): Promise<SSHKeyInfo | null>;
+
+  /**
+   * Delete SSH key from DigitalOcean account
+   */
+  deleteSSHKey(idOrFingerprint: string): Promise<void>;
 }
 
 /**

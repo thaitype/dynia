@@ -119,6 +119,7 @@ export class CloudflareProvider implements ICloudflareProvider {
   /**
    * Deploy Cloudflare Worker (placeholder for MVP - not implemented)
    */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async deployWorker(_options: { scriptName: string; origins: string[] }): Promise<void> {
     throw new Error('Worker deployment not implemented in MVP. Please configure your load balancer manually.');
   }
@@ -172,7 +173,7 @@ export class CloudflareProvider implements ICloudflareProvider {
     
     if (data.Answer && data.Answer.length > 0) {
       // Return the first A record
-      const aRecord = data.Answer.find((answer: any) => answer.type === 1);
+      const aRecord = data.Answer.find((answer: { type: number }) => answer.type === 1);
       if (aRecord) {
         return aRecord.data;
       }
@@ -188,7 +189,8 @@ export class CloudflareProvider implements ICloudflareProvider {
     method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     endpoint: string,
     body?: unknown
-  ): Promise<any> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ): Promise<{ result?: any; success?: boolean; errors?: Array<{ message: string }> }> {
     const url = `${this.baseUrl}${endpoint}`;
     
     this.logger.debug(`CF API: ${method} ${endpoint}`);
@@ -205,7 +207,7 @@ export class CloudflareProvider implements ICloudflareProvider {
       let errorMessage = `Cloudflare API error: ${response.status}`;
       
       if (responseData.errors && responseData.errors.length > 0) {
-        errorMessage += ` - ${responseData.errors.map((e: any) => e.message).join(', ')}`;
+        errorMessage += ` - ${responseData.errors.map((e: { message: string }) => e.message).join(', ')}`;
       }
 
       throw new Error(errorMessage);
@@ -217,13 +219,14 @@ export class CloudflareProvider implements ICloudflareProvider {
   /**
    * Map Cloudflare API DNS record response to our interface
    */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private mapDnsRecordResponse(record: any): DnsRecord {
     return {
       id: record.id,
       type: record.type,
       name: record.name,
       value: record.content,
-      ttl: record.ttl,
+      ttl: record.ttl || 300,
       proxied: record.proxied || false,
     };
   }

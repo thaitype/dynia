@@ -4,6 +4,7 @@ import type { GlobalConfigOptions } from '../../internal/types.js';
 import { createCommandHandler } from '../../shared/base/base-command.js';
 import { NodeCreateCommand } from './node-create.js';
 import { NodeListCommand } from './node-list.js';
+import { NodeRepairCommand } from './node-repair.js';
 
 /**
  * Node management command module
@@ -43,6 +44,31 @@ export const nodeCommand: CommandModule<GlobalConfigOptions> = {
         describe: 'List all nodes',
         builder: yargs => yargs.example('$0 node list', 'Show all nodes'),
         handler: createCommandHandler(NodeListCommand),
+      })
+      .command({
+        command: 'repair <name>',
+        describe: 'Repair and recover failed node infrastructure',
+        builder: yargs =>
+          yargs
+            .positional('name', {
+              type: 'string',
+              describe: 'Node name to repair',
+              demandOption: true,
+            })
+            .option('force', {
+              type: 'boolean',
+              describe: 'Execute repairs without confirmation',
+              default: false,
+            })
+            .option('check-only', {
+              type: 'boolean',
+              describe: 'Only check status, do not repair',
+              default: false,
+            })
+            .example('$0 node repair webserver-1', 'Check and repair webserver-1')
+            .example('$0 node repair webserver-1 --check-only', 'Only check status')
+            .example('$0 node repair webserver-1 --force', 'Force repair without confirmation'),
+        handler: createCommandHandler(NodeRepairCommand),
       })
       .demandCommand(1, 'Please specify a node action')
       .help(),
