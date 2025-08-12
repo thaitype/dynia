@@ -260,3 +260,9 @@ flowchart LR
   * `activate`: pre-check target health, then reassign RIP
   * `deploy`: verify port/health; rollback on failure; `--force` to override conflicts
   * `placeholder`: always safe; uses isolated route/host
+
+---
+
+Note: this design is not support stateful apps directly. For stateful workloads, consider externalizing state (e.g., using a managed database or object storage).
+
+

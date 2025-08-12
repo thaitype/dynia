@@ -26,6 +26,26 @@ export interface SSHKeyInfo {
 }
 
 /**
+ * DigitalOcean Reserved IP information
+ */
+export interface ReservedIpInfo {
+  id: string;
+  ip: string;
+  region: string;
+  dropletId?: string; // null if unassigned
+}
+
+/**
+ * DigitalOcean VPC information
+ */
+export interface VpcInfo {
+  id: string;
+  name: string;
+  region: string;
+  ipRange: string; // CIDR block
+}
+
+/**
  * DigitalOcean provider interface
  */
 export interface IDigitalOceanProvider {
@@ -74,6 +94,64 @@ export interface IDigitalOceanProvider {
    * Delete SSH key from DigitalOcean account
    */
   deleteSSHKey(idOrFingerprint: string): Promise<void>;
+
+  // Reserved IP management
+  
+  /**
+   * Create a new Reserved IP in specified region
+   */
+  createReservedIp(region: string): Promise<ReservedIpInfo>;
+
+  /**
+   * List all Reserved IPs
+   */
+  listReservedIps(): Promise<ReservedIpInfo[]>;
+
+  /**
+   * Get Reserved IP information by ID
+   */
+  getReservedIp(reservedIpId: string): Promise<ReservedIpInfo>;
+
+  /**
+   * Assign Reserved IP to a droplet
+   */
+  assignReservedIp(reservedIpId: string, dropletId: string): Promise<void>;
+
+  /**
+   * Unassign Reserved IP from current droplet
+   */
+  unassignReservedIp(reservedIpId: string): Promise<void>;
+
+  /**
+   * Delete Reserved IP
+   */
+  deleteReservedIp(reservedIpId: string): Promise<void>;
+
+  // VPC management
+
+  /**
+   * Create a new VPC in specified region
+   */
+  createVpc(options: {
+    name: string;
+    region: string;
+    ipRange?: string; // CIDR, defaults to 10.10.0.0/16
+  }): Promise<VpcInfo>;
+
+  /**
+   * List all VPCs
+   */
+  listVpcs(): Promise<VpcInfo[]>;
+
+  /**
+   * Get VPC information by ID
+   */
+  getVpc(vpcId: string): Promise<VpcInfo>;
+
+  /**
+   * Delete VPC
+   */
+  deleteVpc(vpcId: string): Promise<void>;
 }
 
 /**

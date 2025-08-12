@@ -5,6 +5,7 @@ import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 
 import { appCommand } from '../commands/app/index.js';
+import { clusterCommand } from '../commands/cluster/index.js';
 import { nodeCommand } from '../commands/node/index.js';
 import { slbCommand } from '../commands/slb/index.js';
 import { sshCommand } from '../commands/ssh/index.js';
@@ -63,6 +64,7 @@ export function cliEntryPoint(argv: string[], options: CliEntryPointOptions): Pr
       .command(generateCommand)
       .command(sshCommand)
       .command(nodeCommand)
+      .command(clusterCommand)
       .command(appCommand)
       .command(slbCommand)
       // .command(secretCommand)

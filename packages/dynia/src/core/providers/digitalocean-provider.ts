@@ -1,7 +1,7 @@
 import type { ILogger } from '@thaitype/core-utils';
 
 import { Helpers } from '../../shared/utils/helpers.js';
-import type { DropletInfo, IDigitalOceanProvider, SSHKeyInfo } from './interfaces.js';
+import type { DropletInfo, IDigitalOceanProvider, ReservedIpInfo, SSHKeyInfo, VpcInfo } from './interfaces.js';
 
 /**
  * DigitalOcean provider implementation using DO API v2
@@ -154,6 +154,151 @@ export class DigitalOceanProvider implements IDigitalOceanProvider {
     this.logger.info(`SSH key ${idOrFingerprint} deletion completed`);
   }
 
+  // Reserved IP management
+
+  /**
+   * Create a new Reserved IP in specified region
+   */
+  async createReservedIp(region: string): Promise<ReservedIpInfo> {
+    this.logger.info(`Creating Reserved IP in region: ${region}`);
+
+    const body = {
+      region,
+      type: 'reserve',
+    };
+
+    const response = await this.apiRequest('POST', '/reserved_ips', body);
+    const reservedIp = response.reserved_ip;
+
+    const result = this.mapReservedIpResponse(reservedIp);
+    this.logger.info(`✅ Created Reserved IP: ${result.ip} (${result.id})`);
+    return result;
+  }
+
+  /**
+   * List all Reserved IPs
+   */
+  async listReservedIps(): Promise<ReservedIpInfo[]> {
+    this.logger.debug('Listing Reserved IPs');
+
+    const response = await this.apiRequest('GET', '/reserved_ips');
+    const reservedIps = response.reserved_ips || [];
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return reservedIps.map((ip: any) => this.mapReservedIpResponse(ip));
+  }
+
+  /**
+   * Get Reserved IP information by ID
+   */
+  async getReservedIp(reservedIpId: string): Promise<ReservedIpInfo> {
+    this.logger.debug(`Getting Reserved IP: ${reservedIpId}`);
+
+    const response = await this.apiRequest('GET', `/reserved_ips/${reservedIpId}`);
+    return this.mapReservedIpResponse(response.reserved_ip);
+  }
+
+  /**
+   * Assign Reserved IP to a droplet
+   */
+  async assignReservedIp(reservedIpId: string, dropletId: string): Promise<void> {
+    this.logger.info(`Assigning Reserved IP ${reservedIpId} to droplet ${dropletId}`);
+
+    const body = {
+      resource_type: 'droplet',
+      resource_id: dropletId,
+    };
+
+    await this.apiRequest('POST', `/reserved_ips/${reservedIpId}/actions`, {
+      type: 'assign',
+      ...body,
+    });
+
+    this.logger.info(`✅ Reserved IP ${reservedIpId} assigned to droplet ${dropletId}`);
+  }
+
+  /**
+   * Unassign Reserved IP from current droplet
+   */
+  async unassignReservedIp(reservedIpId: string): Promise<void> {
+    this.logger.info(`Unassigning Reserved IP: ${reservedIpId}`);
+
+    await this.apiRequest('POST', `/reserved_ips/${reservedIpId}/actions`, {
+      type: 'unassign',
+    });
+
+    this.logger.info(`✅ Reserved IP ${reservedIpId} unassigned`);
+  }
+
+  /**
+   * Delete Reserved IP
+   */
+  async deleteReservedIp(reservedIpId: string): Promise<void> {
+    this.logger.info(`Deleting Reserved IP: ${reservedIpId}`);
+
+    await this.apiRequest('DELETE', `/reserved_ips/${reservedIpId}`);
+    this.logger.info(`✅ Reserved IP ${reservedIpId} deleted`);
+  }
+
+  // VPC management
+
+  /**
+   * Create a new VPC in specified region
+   */
+  async createVpc(options: {
+    name: string;
+    region: string;
+    ipRange?: string;
+  }): Promise<VpcInfo> {
+    this.logger.info(`Creating VPC: ${options.name} in ${options.region}`);
+
+    const body = {
+      name: options.name,
+      region: options.region,
+      ip_range: options.ipRange || '10.10.0.0/16',
+    };
+
+    const response = await this.apiRequest('POST', '/vpcs', body);
+    const vpc = response.vpc;
+
+    const result = this.mapVpcResponse(vpc);
+    this.logger.info(`✅ Created VPC: ${result.name} (${result.id})`);
+    return result;
+  }
+
+  /**
+   * List all VPCs
+   */
+  async listVpcs(): Promise<VpcInfo[]> {
+    this.logger.debug('Listing VPCs');
+
+    const response = await this.apiRequest('GET', '/vpcs');
+    const vpcs = response.vpcs || [];
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return vpcs.map((vpc: any) => this.mapVpcResponse(vpc));
+  }
+
+  /**
+   * Get VPC information by ID
+   */
+  async getVpc(vpcId: string): Promise<VpcInfo> {
+    this.logger.debug(`Getting VPC: ${vpcId}`);
+
+    const response = await this.apiRequest('GET', `/vpcs/${vpcId}`);
+    return this.mapVpcResponse(response.vpc);
+  }
+
+  /**
+   * Delete VPC
+   */
+  async deleteVpc(vpcId: string): Promise<void> {
+    this.logger.info(`Deleting VPC: ${vpcId}`);
+
+    await this.apiRequest('DELETE', `/vpcs/${vpcId}`);
+    this.logger.info(`✅ VPC ${vpcId} deleted`);
+  }
+
   /**
    * Make an API request to DigitalOcean
    */
@@ -162,7 +307,7 @@ export class DigitalOceanProvider implements IDigitalOceanProvider {
     endpoint: string,
     body?: unknown
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ): Promise<{ droplet?: any; droplets?: any; ssh_key?: any; ssh_keys?: any }> {
+  ): Promise<{ [key: string]: any }> {
     const url = `${this.baseUrl}${endpoint}`;
 
     this.logger.debug(`DO API: ${method} ${endpoint}`);
@@ -244,6 +389,32 @@ export class DigitalOceanProvider implements IDigitalOceanProvider {
       name: sshKey.name,
       fingerprint: sshKey.fingerprint,
       publicKey: sshKey.public_key,
+    };
+  }
+
+  /**
+   * Map DigitalOcean API Reserved IP response to our interface
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private mapReservedIpResponse(reservedIp: any): ReservedIpInfo {
+    return {
+      id: reservedIp.ip, // Reserved IPs use IP as ID in DO API
+      ip: reservedIp.ip,
+      region: reservedIp.region?.slug || '',
+      dropletId: reservedIp.droplet?.id?.toString() || undefined,
+    };
+  }
+
+  /**
+   * Map DigitalOcean API VPC response to our interface
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private mapVpcResponse(vpc: any): VpcInfo {
+    return {
+      id: vpc.id,
+      name: vpc.name,
+      region: vpc.region,
+      ipRange: vpc.ip_range,
     };
   }
 }
