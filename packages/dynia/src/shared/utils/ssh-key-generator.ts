@@ -32,8 +32,11 @@ export class SSHKeyGenerator {
       // Try to execute ssh-keygen with help flag to verify it exists
       await this.executeCommand('ssh-keygen --help 2>&1 | head -1 || ssh-keygen 2>&1 | head -1');
     } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
       throw new Error(
-        'ssh-keygen is not available on this system. ' + 'Please install OpenSSH client tools to generate SSH keys.'
+        'ssh-keygen is not available on this system. ' +
+          'Please install OpenSSH client tools to generate SSH keys.' +
+          msg
       );
     }
   }

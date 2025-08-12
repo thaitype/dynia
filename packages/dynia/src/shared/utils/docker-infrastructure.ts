@@ -1,14 +1,13 @@
-import { readFile } from 'fs/promises';
-import { dirname, resolve } from 'path';
-import { fileURLToPath } from 'url';
+// import { dirname } from 'path';
+// import { fileURLToPath } from 'url';
 
 import type { ILogger } from '@thaitype/core-utils';
 
 import { Helpers } from './helpers.js';
 import { SSHExecutor } from './ssh.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+// const __filename = fileURLToPath(import.meta.url);
+// const __dirname = dirname(__filename);
 
 /**
  * Docker infrastructure management utilities
