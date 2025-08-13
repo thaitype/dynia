@@ -363,7 +363,7 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
                 yargs
                   .option('component', {
                     type: 'string',
-                    choices: ['caddy', 'docker', 'keepalived', 'system'],
+                    choices: ['caddy', 'docker', 'haproxy', 'keepalived', 'system'],
                     describe: 'Show configuration for specific component only',
                   })
                   .option('node', {
@@ -373,6 +373,11 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
                   .option('full', {
                     type: 'boolean',
                     describe: 'Display full configuration instead of summary',
+                    default: false,
+                  })
+                  .option('routes', {
+                    type: 'boolean',
+                    describe: 'Show routing summary (domains, targets, active node)',
                     default: false,
                   })
                   .example(
@@ -390,6 +395,14 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
                   .example(
                     '$0 cluster config inspect --name myapp --component caddy --node misty-owl --full',
                     'Show full Caddy configuration for specific node'
+                  )
+                  .example(
+                    '$0 cluster config inspect --name myapp --routes',
+                    'Show routing summary with active node and domain mappings'
+                  )
+                  .example(
+                    '$0 cluster config inspect --name myapp --component haproxy',
+                    'Show HAProxy load balancer configuration for all nodes'
                   ),
               handler: createCommandHandler(ClusterConfigInspectCommand),
             })

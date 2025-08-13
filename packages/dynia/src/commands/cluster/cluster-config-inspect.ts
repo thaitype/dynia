@@ -1,7 +1,6 @@
 import { BaseCommand } from '../../shared/base/base-command.js';
-import { ValidationUtils } from '../../shared/utils/validation.js';
 import { SSHExecutor } from '../../shared/utils/ssh.js';
-import type { ClusterNode } from '../../shared/types/index.js';
+import type { ClusterNode, Cluster } from '../../shared/types/index.js';
 import { Table } from 'console-table-printer';
 import pAll from 'p-all';
 
@@ -9,6 +8,7 @@ export interface ClusterConfigInspectOptions {
   component?: string;
   node?: string;
   full?: boolean;
+  routes?: boolean;
 }
 
 interface ComponentConfig {
@@ -21,13 +21,14 @@ interface ComponentConfig {
 
 /**
  * Command to inspect live configuration of cluster nodes across all components
- * Shows configuration for Caddy, Docker, keepalived, and system info
+ * Shows configuration for Caddy, Docker, HAProxy, keepalived, and system info
+ * Includes routing information and active node identification
  */
 export class ClusterConfigInspectCommand extends BaseCommand<ClusterConfigInspectOptions> {
-  private readonly supportedComponents = ['caddy', 'docker', 'keepalived', 'system'];
+  private readonly supportedComponents = ['caddy', 'docker', 'haproxy', 'keepalived', 'system'];
 
   protected async run(): Promise<void> {
-    const { name, component, node, full } = this.argv;
+    const { name, component, node, full, routes } = this.argv;
 
     // Validate inputs (cluster name handled by parent command)
     if (!name) {
@@ -67,11 +68,16 @@ export class ClusterConfigInspectCommand extends BaseCommand<ClusterConfigInspec
     }
 
     // Determine components to inspect
-    const componentsToInspect = component ? [component] : this.supportedComponents;
+    const componentsToInspect = routes ? ['caddy', 'haproxy'] : (component ? [component] : this.supportedComponents);
 
-    this.logger.info(`\nCluster: ${clusterName}`);
-    this.logger.info(`Nodes: ${targetNodes.length} of ${allNodes.length}`);
-    this.logger.info(`Components: ${componentsToInspect.join(', ')}`);
+    // Show cluster overview with active node information
+    const activeNode = allNodes.find(n => n.role === 'active');
+    const reservedIpInfo = cluster.reservedIp ? ` (Reserved IP: ${cluster.reservedIp})` : '';
+    
+    this.logger.info(`\nCluster: ${clusterName}${reservedIpInfo}`);
+    this.logger.info(`Active Node: ${activeNode ? `🟢 ${activeNode.twoWordId} (${activeNode.publicIp})` : '❌ None'}`);
+    this.logger.info(`Total Nodes: ${allNodes.length} (${allNodes.filter(n => n.role === 'active').length} active, ${allNodes.filter(n => n.role === 'standby').length} standby)`);
+    this.logger.info(`Inspecting: ${targetNodes.length} node(s), ${componentsToInspect.join(', ')} component(s)`);
     this.logger.info(`Mode: ${full ? 'Full Configuration' : 'Summary'}\n`);
 
     // Collect configurations from all nodes and components
@@ -97,22 +103,28 @@ export class ClusterConfigInspectCommand extends BaseCommand<ClusterConfigInspec
     }
 
     // Display results
-    if (full) {
-      this.displayFullConfiguration(configurations);
+    if (routes) {
+      this.displayRoutingSummary(configurations, allNodes, cluster);
+    } else if (full) {
+      this.displayFullConfiguration(configurations, allNodes);
     } else {
-      this.displaySummaryConfiguration(configurations);
+      this.displaySummaryConfiguration(configurations, allNodes);
     }
 
     // Show helpful commands
-    console.log('\nUseful commands:');
-    console.log(`  dynia cluster config inspect --name ${clusterName} --full # Show full configurations`);
-    if (!component) {
-      console.log(`  dynia cluster config inspect --name ${clusterName} --component caddy # Filter by component`);
+    if (!routes) {
+      console.log('\nUseful commands:');
+      console.log(`  dynia cluster config inspect --name ${clusterName} --routes # Show routing summary`);
+      console.log(`  dynia cluster config inspect --name ${clusterName} --full # Show full configurations`);
+      if (!component) {
+        console.log(`  dynia cluster config inspect --name ${clusterName} --component caddy # Filter by component`);
+        console.log(`  dynia cluster config inspect --name ${clusterName} --component haproxy # Show HAProxy config`);
+      }
+      if (!node && targetNodes.length > 1) {
+        console.log(`  dynia cluster config inspect --name ${clusterName} --node ${targetNodes[0].twoWordId} # Filter by node`);
+      }
+      console.log(`  dynia cluster node list --name ${clusterName} # Show node status`);
     }
-    if (!node && targetNodes.length > 1) {
-      console.log(`  dynia cluster config inspect --name ${clusterName} --node ${targetNodes[0].twoWordId} # Filter by node`);
-    }
-    console.log(`  dynia cluster node list --name ${clusterName} # Show node status`);
   }
 
   /**
@@ -126,6 +138,8 @@ export class ClusterConfigInspectCommand extends BaseCommand<ClusterConfigInspec
         return await this.inspectCaddy(ssh, node, full);
       case 'docker':
         return await this.inspectDocker(ssh, node, full);
+      case 'haproxy':
+        return await this.inspectHaproxy(ssh, node, full);
       case 'keepalived':
         return await this.inspectKeepalived(ssh, node, full);
       case 'system':
@@ -155,7 +169,9 @@ export class ClusterConfigInspectCommand extends BaseCommand<ClusterConfigInspec
         () => ssh.executeCommand('curl -f --connect-timeout 2 --max-time 5 http://localhost:2019/config/ >/dev/null 2>&1')
           .then(() => 'accessible')
           .catch(() => 'not-accessible'),
-        () => ssh.executeCommand('docker inspect dynia-caddy --format "{{.State.Health.Status}}" 2>/dev/null || echo "no-healthcheck"')
+        () => ssh.executeCommand('docker inspect dynia-caddy --format "{{.State.Health.Status}}" 2>/dev/null || echo "no-healthcheck"'),
+        () => ssh.executeCommand('grep -E "^[a-zA-Z0-9.-]+\\.[a-zA-Z]+" /opt/dynia/caddy/Caddyfile | head -5 | tr "\\n" "," | sed "s/,$//g" || echo "none"'),
+        () => ssh.executeCommand('grep -E "reverse_proxy" /opt/dynia/caddy/Caddyfile | grep -oE "[a-zA-Z0-9.-]+:[0-9]+" | head -3 | tr "\\n" "," | sed "s/,$//g" || echo "none"')
       ];
 
       // Add full config task if needed
@@ -167,7 +183,7 @@ export class ClusterConfigInspectCommand extends BaseCommand<ClusterConfigInspec
       const results = await pAll(sshTasks, { concurrency: 7 });
 
       // Process results
-      const [containerStatus, caddyfileExists, domainCount, adminApiResult, healthStatus, fullConfigResult] = results;
+      const [containerStatus, caddyfileExists, domainCount, adminApiResult, healthStatus, routeDomains, routeTargets, fullConfigResult] = results;
       
       config.status = containerStatus.trim() ? 'Running' : 'Stopped';
       config.key_config.caddyfile = caddyfileExists.trim();
@@ -175,6 +191,8 @@ export class ClusterConfigInspectCommand extends BaseCommand<ClusterConfigInspec
       if (caddyfileExists.trim() === 'exists') {
         config.key_config.domains = domainCount.trim();
         config.key_config.admin_api = adminApiResult === 'accessible' ? 'Accessible' : 'Not accessible';
+        config.key_config.route_domains = routeDomains.trim();
+        config.key_config.route_targets = routeTargets.trim();
         
         if (full && fullConfigResult) {
           config.full_config = fullConfigResult;
@@ -234,6 +252,91 @@ export class ClusterConfigInspectCommand extends BaseCommand<ClusterConfigInspec
 
       if (full && containerDetails) {
         config.full_config = containerDetails;
+      }
+
+    } catch (error) {
+      config.status = 'Error';
+      config.key_config.error = error instanceof Error ? error.message : String(error);
+    }
+
+    return config;
+  }
+
+  /**
+   * Inspect HAProxy configuration and status
+   */
+  private async inspectHaproxy(ssh: SSHExecutor, node: ClusterNode, full: boolean): Promise<ComponentConfig> {
+    const config: ComponentConfig = {
+      component: 'haproxy',
+      node: node.twoWordId,
+      status: 'Unknown',
+      key_config: {}
+    };
+
+    try {
+      // Check if HAProxy is installed/configured first
+      const haproxyExists = await ssh.executeCommand('which haproxy >/dev/null 2>&1 && echo "installed" || echo "not-installed"');
+      
+      if (haproxyExists.trim() === 'not-installed') {
+        config.status = 'Not Configured';
+        config.key_config.installation = 'Not installed';
+        return config;
+      }
+
+      // Create parallel SSH tasks for installed HAProxy
+      const sshTasks = [
+        () => ssh.executeCommand('systemctl is-active haproxy 2>/dev/null || echo "inactive"'),
+        () => ssh.executeCommand('test -f /etc/haproxy/haproxy.cfg && echo "exists" || echo "missing"')
+      ];
+
+      // Execute initial tasks in parallel
+      const [serviceStatus, configExists] = await pAll(sshTasks, { concurrency: 7 });
+      
+      config.status = serviceStatus.trim() === 'active' ? 'Running' : 'Stopped';
+      config.key_config.config_file = configExists.trim();
+
+      // Additional tasks based on config existence
+      const additionalTasks = [];
+
+      if (configExists.trim() === 'exists') {
+        additionalTasks.push(
+          () => ssh.executeCommand('grep -c "^\\s*server\\s" /etc/haproxy/haproxy.cfg || echo "0"'),
+          () => ssh.executeCommand('grep -c "^\\s*backend\\s" /etc/haproxy/haproxy.cfg || echo "0"'),
+          () => ssh.executeCommand('grep -oE "bind.*:[0-9]+" /etc/haproxy/haproxy.cfg | head -3 | tr "\\n" "," | sed "s/,$//g" || echo "none"')
+        );
+        
+        if (full) {
+          additionalTasks.push(() => ssh.executeCommand('cat /etc/haproxy/haproxy.cfg'));
+        }
+      }
+
+      // Check HAProxy stats if running
+      if (config.status === 'Running') {
+        additionalTasks.push(() => ssh.executeCommand('curl -s http://localhost:8404/stats 2>/dev/null | grep -q "HAProxy Statistics" && echo "accessible" || echo "not-accessible"'));
+      }
+
+      // Execute additional tasks in parallel if any
+      if (additionalTasks.length > 0) {
+        const additionalResults = await pAll(additionalTasks, { concurrency: 7 });
+        let resultIndex = 0;
+
+        if (configExists.trim() === 'exists') {
+          config.key_config.servers = additionalResults[resultIndex].trim();
+          resultIndex++;
+          config.key_config.backends = additionalResults[resultIndex].trim();
+          resultIndex++;
+          config.key_config.listen_ports = additionalResults[resultIndex].trim();
+          resultIndex++;
+          
+          if (full) {
+            config.full_config = additionalResults[resultIndex];
+            resultIndex++;
+          }
+        }
+
+        if (config.status === 'Running') {
+          config.key_config.stats_page = additionalResults[resultIndex].trim();
+        }
       }
 
     } catch (error) {
@@ -373,7 +476,7 @@ export class ClusterConfigInspectCommand extends BaseCommand<ClusterConfigInspec
   /**
    * Display summary configuration in table format
    */
-  private displaySummaryConfiguration(configurations: ComponentConfig[]): void {
+  private displaySummaryConfiguration(configurations: ComponentConfig[], allNodes: ClusterNode[]): void {
     const table = new Table({
       columns: [
         { name: 'node', title: 'Node', alignment: 'left' },
@@ -386,9 +489,13 @@ export class ClusterConfigInspectCommand extends BaseCommand<ClusterConfigInspec
     configurations.forEach(config => {
       const statusIcon = this.getStatusIcon(config.status);
       const keyInfo = this.formatKeyInfo(config.key_config);
+      
+      // Find if this node is active
+      const node = allNodes.find(n => n.twoWordId === config.node);
+      const nodeDisplay = node?.role === 'active' ? `🟢 ${config.node}` : config.node;
 
       table.addRow({
-        node: config.node,
+        node: nodeDisplay,
         component: config.component,
         status: `${statusIcon} ${config.status}`,
         key_info: keyInfo
@@ -401,11 +508,15 @@ export class ClusterConfigInspectCommand extends BaseCommand<ClusterConfigInspec
   /**
    * Display full configuration with detailed output
    */
-  private displayFullConfiguration(configurations: ComponentConfig[]): void {
+  private displayFullConfiguration(configurations: ComponentConfig[], allNodes: ClusterNode[]): void {
     configurations.forEach((config, index) => {
       if (index > 0) console.log('\n' + '='.repeat(80) + '\n');
       
-      console.log(`Node: ${config.node} | Component: ${config.component}`);
+      // Find if this node is active
+      const node = allNodes.find(n => n.twoWordId === config.node);
+      const nodeDisplay = node?.role === 'active' ? `🟢 ${config.node}` : config.node;
+      
+      console.log(`Node: ${nodeDisplay} | Component: ${config.component}`);
       console.log(`Status: ${this.getStatusIcon(config.status)} ${config.status}`);
       
       if (Object.keys(config.key_config).length > 0) {
@@ -457,6 +568,80 @@ export class ClusterConfigInspectCommand extends BaseCommand<ClusterConfigInspec
     });
 
     return items.slice(0, 3).join(', ') + (items.length > 3 ? '...' : '');
+  }
+
+  /**
+   * Display routing-focused summary showing domain mappings and active node
+   */
+  private displayRoutingSummary(configurations: ComponentConfig[], allNodes: ClusterNode[], cluster: Cluster): void {
+    const activeNode = allNodes.find(n => n.role === 'active');
+    
+    console.log('🌐 ROUTING SUMMARY');
+    console.log('='.repeat(50));
+    
+    // Cluster-level routing info
+    console.log(`\nCluster: ${cluster.name}`);
+    console.log(`Active Node: ${activeNode ? `🟢 ${activeNode.twoWordId} (${activeNode.publicIp})` : '❌ None'}`);
+    if (cluster.reservedIp) {
+      console.log(`Reserved IP: ${cluster.reservedIp} (receives external traffic)`);
+    }
+    
+    // Extract routing information from Caddy and HAProxy configs
+    const routingTable = new Table({
+      columns: [
+        { name: 'proxy', title: 'Proxy', alignment: 'left' },
+        { name: 'node', title: 'Node', alignment: 'left' },
+        { name: 'domains', title: 'Domains', alignment: 'left' },
+        { name: 'targets', title: 'Backend Targets', alignment: 'left' },
+        { name: 'status', title: 'Status', alignment: 'center' }
+      ]
+    });
+
+    configurations.forEach(config => {
+      if (config.component === 'caddy' || config.component === 'haproxy') {
+        const node = allNodes.find(n => n.twoWordId === config.node);
+        const nodeDisplay = node?.role === 'active' ? `🟢 ${config.node}` : config.node;
+        const statusIcon = this.getStatusIcon(config.status);
+        
+        let domains = 'None';
+        let targets = 'None';
+        
+        if (config.component === 'caddy') {
+          domains = config.key_config.route_domains || 'None';
+          targets = config.key_config.route_targets || 'None';
+        } else if (config.component === 'haproxy') {
+          domains = `${config.key_config.listen_ports || 'None'} (ports)`;
+          targets = `${config.key_config.servers || '0'} servers`;
+        }
+
+        routingTable.addRow({
+          proxy: config.component.toUpperCase(),
+          node: nodeDisplay,
+          domains: domains,
+          targets: targets,
+          status: `${statusIcon} ${config.status}`
+        });
+      }
+    });
+
+    console.log('\n📊 ROUTING CONFIGURATION:');
+    routingTable.printTable();
+
+    // Traffic flow summary
+    console.log('\n🔄 TRAFFIC FLOW:');
+    if (cluster.reservedIp && activeNode) {
+      console.log(`Internet → ${cluster.reservedIp} (Reserved IP) → ${activeNode.twoWordId} (${activeNode.publicIp}) → Backend Services`);
+    } else if (activeNode) {
+      console.log(`Internet → ${activeNode.twoWordId} (${activeNode.publicIp}) → Backend Services`);
+    } else {
+      console.log('❌ No active node configured - traffic routing unavailable');
+    }
+    
+    console.log('\n💡 ROUTING TIPS:');
+    console.log('• Only the active node receives external traffic');
+    console.log('• Standby nodes are ready to take over if active node fails');
+    console.log('• Use "dynia cluster node activate" to change the active node');
+    console.log('• Check DNS records point to the Reserved IP for high availability');
   }
 
   protected async validatePrerequisites(): Promise<void> {
