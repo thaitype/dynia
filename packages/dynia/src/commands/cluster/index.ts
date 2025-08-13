@@ -25,6 +25,24 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
   describe: 'Manage HA clusters with Reserved IP and host-based routing',
   builder: yargs =>
     yargs
+      .option('name', {
+        type: 'string',
+        describe: 'Cluster name (for cluster operations)',
+        global: true, // Make available to all subcommands
+      })
+      .middleware((argv) => {
+        // Commands that require a cluster name
+        const commandsRequiringName = [
+          'node', 'config', 'deployment', 'reserved-ip'
+        ];
+        
+        // Check if this is a command that needs a cluster name
+        const action = String(argv._[1]); // cluster is argv._[0], action is argv._[1]
+        
+        if (commandsRequiringName.includes(action) && !argv.name) {
+          throw new Error(`The 'cluster ${action}' command requires --name <cluster-name>`);
+        }
+      })
       .command({
         command: 'create-ha',
         describe: 'Create a new HA cluster (starts with 1 node)',
@@ -95,11 +113,6 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
               describe: 'Add node(s) to cluster',
               builder: yargs =>
                 yargs
-                  .option('name', {
-                    type: 'string',
-                    describe: 'Cluster name',
-                    demandOption: true,
-                  })
                   .option('count', {
                     type: 'number',
                     describe: 'Number of nodes to add',
@@ -114,11 +127,6 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
               describe: 'Remove a node from cluster',
               builder: yargs =>
                 yargs
-                  .option('name', {
-                    type: 'string',
-                    describe: 'Cluster name',
-                    demandOption: true,
-                  })
                   .option('node', {
                     type: 'string',
                     describe: 'Two-word node ID (e.g., brave-panda)',
@@ -140,11 +148,6 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
               describe: 'Make a node active (move Reserved IP)',
               builder: yargs =>
                 yargs
-                  .option('name', {
-                    type: 'string',
-                    describe: 'Cluster name',
-                    demandOption: true,
-                  })
                   .option('node', {
                     type: 'string',
                     describe: 'Two-word node ID to make active',
@@ -161,11 +164,6 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
               describe: 'List nodes in a cluster',
               builder: yargs =>
                 yargs
-                  .option('name', {
-                    type: 'string',
-                    describe: 'Cluster name',
-                    demandOption: true,
-                  })
                   .example('$0 cluster node list --name myapp', 'List all nodes in cluster'),
               handler: createCommandHandler(ClusterNodeListCommand),
             })
@@ -174,11 +172,6 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
               describe: 'Prepare node infrastructure (Docker + Caddy + keepalived)',
               builder: yargs =>
                 yargs
-                  .option('name', {
-                    type: 'string',
-                    describe: 'Cluster name',
-                    demandOption: true,
-                  })
                   .option('node', {
                     type: 'string',
                     describe: 'Two-word node ID to prepare',
@@ -320,11 +313,6 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
               describe: 'Assign Reserved IP to cluster node',
               builder: yargs =>
                 yargs
-                  .option('name', {
-                    type: 'string',
-                    describe: 'Cluster name',
-                    demandOption: true,
-                  })
                   .option('node', {
                     type: 'string', 
                     describe: 'Node ID to assign Reserved IP to',
@@ -373,11 +361,6 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
               describe: 'Show live configuration of cluster nodes and components',
               builder: yargs =>
                 yargs
-                  .option('name', {
-                    type: 'string',
-                    describe: 'Cluster name',
-                    demandOption: true,
-                  })
                   .option('component', {
                     type: 'string',
                     choices: ['caddy', 'docker', 'keepalived', 'system'],

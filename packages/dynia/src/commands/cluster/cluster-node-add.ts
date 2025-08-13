@@ -7,7 +7,6 @@ import { NodePreparationService } from '../../shared/services/node-preparation-s
 import type { ClusterNode } from '../../shared/types/index.js';
 
 export interface ClusterNodeAddOptions {
-  name: string;
   count?: number;
 }
 
@@ -17,10 +16,14 @@ export interface ClusterNodeAddOptions {
  */
 export class ClusterNodeAddCommand extends BaseCommand<ClusterNodeAddOptions> {
   protected async run(): Promise<void> {
-    const { name: cluster, count = 1 } = this.argv;
+    const { name, count = 1 } = this.argv;
 
-    // Validate inputs
-    ValidationUtils.validateRequiredArgs(this.argv, ['name']);
+    // Validate inputs (cluster name handled by parent command)
+    if (!name) {
+      throw new Error('Cluster name is required. Use --name <cluster-name>');
+    }
+    
+    const cluster = name as string;
     
     if (count < 1 || count > 10) {
       throw new Error('Count must be between 1 and 10 nodes');

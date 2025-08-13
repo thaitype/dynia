@@ -5,7 +5,6 @@ import type { ClusterNode } from '../../shared/types/index.js';
 import { Table } from 'console-table-printer';
 
 export interface ClusterConfigInspectOptions {
-  name: string;
   component?: string;
   node?: string;
   full?: boolean;
@@ -27,10 +26,14 @@ export class ClusterConfigInspectCommand extends BaseCommand<ClusterConfigInspec
   private readonly supportedComponents = ['caddy', 'docker', 'keepalived', 'system'];
 
   protected async run(): Promise<void> {
-    const { name: clusterName, component, node, full } = this.argv;
+    const { name, component, node, full } = this.argv;
 
-    // Validate inputs
-    ValidationUtils.validateRequiredArgs(this.argv, ['name']);
+    // Validate inputs (cluster name handled by parent command)
+    if (!name) {
+      throw new Error('Cluster name is required. Use --name <cluster-name>');
+    }
+    
+    const clusterName = name as string;
 
     if (component && !this.supportedComponents.includes(component)) {
       throw new Error(`Unsupported component '${component}'. Supported components: ${this.supportedComponents.join(', ')}`);

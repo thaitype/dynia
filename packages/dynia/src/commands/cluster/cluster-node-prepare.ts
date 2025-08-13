@@ -3,7 +3,6 @@ import { ValidationUtils } from '../../shared/utils/validation.js';
 import { NodePreparationService } from '../../shared/services/node-preparation-service.js';
 
 export interface ClusterNodePrepareOptions {
-  name: string;
   node: string;
   force?: boolean;
 }
@@ -14,10 +13,15 @@ export interface ClusterNodePrepareOptions {
  */
 export class ClusterNodePrepareCommand extends BaseCommand<ClusterNodePrepareOptions> {
   protected async run(): Promise<void> {
-    const { name: clusterName, node: nodeId, force = false } = this.argv;
+    const { name, node: nodeId, force = false } = this.argv;
 
-    // Validate inputs
-    ValidationUtils.validateRequiredArgs(this.argv, ['name', 'node']);
+    // Validate inputs (cluster name handled by parent command)
+    if (!name) {
+      throw new Error('Cluster name is required. Use --name <cluster-name>');
+    }
+    
+    const clusterName = name as string;
+    ValidationUtils.validateRequiredArgs(this.argv, ['node']);
 
     this.logger.info(`Preparing node ${nodeId} in cluster ${clusterName}...`);
 

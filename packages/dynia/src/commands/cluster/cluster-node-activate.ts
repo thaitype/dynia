@@ -5,7 +5,6 @@ import { DockerInfrastructure } from '../../shared/utils/docker-infrastructure.j
 import type { ClusterNode } from '../../shared/types/index.js';
 
 export interface ClusterNodeActivateOptions {
-  name: string;
   node: string;
 }
 
@@ -15,10 +14,15 @@ export interface ClusterNodeActivateOptions {
  */
 export class ClusterNodeActivateCommand extends BaseCommand<ClusterNodeActivateOptions> {
   protected async run(): Promise<void> {
-    const { name: clusterName, node: nodeId } = this.argv;
+    const { name, node: nodeId } = this.argv;
 
-    // Validate inputs
-    ValidationUtils.validateRequiredArgs(this.argv, ['name', 'node']);
+    // Validate inputs (cluster name handled by parent command)
+    if (!name) {
+      throw new Error('Cluster name is required. Use --name <cluster-name>');
+    }
+    
+    const clusterName = name as string;
+    ValidationUtils.validateRequiredArgs(this.argv, ['node']);
 
     this.logger.info(`Activating node ${nodeId} in cluster ${clusterName}...`);
 

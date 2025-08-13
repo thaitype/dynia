@@ -4,7 +4,6 @@ import type { ClusterNode } from '../../shared/types/index.js';
 import { Table } from 'console-table-printer';
 
 export interface ClusterNodeListOptions {
-  name: string;
 }
 
 /**
@@ -13,10 +12,14 @@ export interface ClusterNodeListOptions {
  */
 export class ClusterNodeListCommand extends BaseCommand<ClusterNodeListOptions> {
   protected async run(): Promise<void> {
-    const { name: clusterName } = this.argv;
+    const { name } = this.argv;
 
-    // Validate inputs
-    ValidationUtils.validateRequiredArgs(this.argv, ['name']);
+    // Validate inputs (cluster name handled by parent command)
+    if (!name) {
+      throw new Error('Cluster name is required. Use --name <cluster-name>');
+    }
+    
+    const clusterName = name as string;
 
     this.logger.info(`Listing nodes in cluster: ${clusterName}`);
 
