@@ -167,7 +167,7 @@ dynia cluster repair-ha --name myapp --force
 
 * Deploys a minimal app + route at
 
-  * `dynia-placeholder.myapp.<base-domain>`
+  * `dynia-placeholder-myapp.<base-domain>`
 * Useful for testing **RIP + DNS + TLS** end-to-end without touching real domains
 
 ---

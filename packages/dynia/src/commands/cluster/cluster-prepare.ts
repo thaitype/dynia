@@ -56,7 +56,7 @@ export class ClusterPrepareCommand extends BaseCommand<ClusterPrepareOptions> {
     }
 
     if (this.dryRun) {
-      this.logDryRun(`prepare ${allNodes.length} nodes with Docker + Caddy + keepalived`);
+      this.logDryRun(`prepare ${allNodes.length} nodes with Docker + HAProxy + Caddy + keepalived`);
       allNodes.forEach(node => {
         const priority = this.calculateNodePriority(node, allNodes);
         this.logDryRun(`  ${node.twoWordId}: role=${node.role || 'standby'}, priority=${priority}`);
@@ -240,7 +240,8 @@ export class ClusterPrepareCommand extends BaseCommand<ClusterPrepareOptions> {
   private showSummaryAndNextSteps(clusterName: string, allNodes: any[]): void {
     this.logger.info(`\\nCluster ${clusterName} summary:`);
     this.logger.info(`  - ${allNodes.length} node${allNodes.length === 1 ? '' : 's'} configured`);
-    this.logger.info(`  - HA infrastructure: Docker + Caddy + keepalived`);
+    this.logger.info(`  - HA infrastructure: Docker + HAProxy + Caddy + keepalived`);
+    this.logger.info(`  - Load balancing across all cluster nodes`);
     this.logger.info(`  - Ready for service deployment`);
     
     this.logger.info('\\nNext steps:');

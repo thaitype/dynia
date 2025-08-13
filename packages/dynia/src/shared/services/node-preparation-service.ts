@@ -40,12 +40,17 @@ export class NodePreparationService {
     // Step 1: Set up basic Docker infrastructure (Docker + Caddy + networking)
     await this.setupDockerInfrastructure(nodeIp, nodeName, baseDomain);
     
-    // Step 2: Configure keepalived for HA (if cluster has multiple nodes or reserved IP)
+    // Step 2: Deploy HAProxy for cluster load balancing (if cluster info available)
+    if (keepalived && cluster) {
+      await this.setupHAProxyInfrastructure(nodeIp, nodeName, baseDomain, cluster, keepalived);
+    }
+    
+    // Step 3: Configure keepalived for HA (if cluster has multiple nodes or reserved IP)
     if (keepalived && cluster) {
       await this.configureKeepalived(nodeIp, nodeName, cluster, keepalived);
     }
     
-    // Step 3: Apply security configuration
+    // Step 4: Apply security configuration
     await this.applySecurityConfiguration(nodeIp, nodeName);
     
     this.logger.info(`✅ Node ${nodeName} preparation complete`);
@@ -71,6 +76,38 @@ export class NodePreparationService {
     await infrastructure.setupInfrastructure();
     
     this.logger.info(`✅ Docker infrastructure ready on ${nodeName}`);
+  }
+
+  /**
+   * Set up HAProxy infrastructure for cluster load balancing
+   */
+  private async setupHAProxyInfrastructure(
+    nodeIp: string, 
+    nodeName: string, 
+    baseDomain: string,
+    cluster: { name: string; region: string; reservedIp?: string; reservedIpId?: string },
+    keepalived: { priority: number; role: 'active' | 'standby'; allNodes: ClusterNode[] }
+  ): Promise<void> {
+    this.logger.info(`Setting up HAProxy infrastructure on ${nodeName}...`);
+    
+    const infrastructure = new DockerInfrastructure(
+      nodeIp,
+      nodeName,
+      baseDomain,
+      this.logger
+    );
+    
+    // Prepare cluster nodes data for HAProxy configuration
+    const clusterNodes = keepalived.allNodes.map(node => ({
+      twoWordId: node.twoWordId,
+      privateIp: node.privateIp || node.publicIp, // Fallback to public IP if private IP not available
+      publicIp: node.publicIp,
+      role: node.role
+    }));
+    
+    await infrastructure.deployHAProxy(clusterNodes, cluster.name);
+    
+    this.logger.info(`✅ HAProxy infrastructure ready on ${nodeName}`);
   }
 
   /**
