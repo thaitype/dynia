@@ -703,7 +703,7 @@ services:
     environment:
       - CADDY_ADMIN=0.0.0.0:2019
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:2019/config/"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/dynia-health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -911,11 +911,11 @@ networks:
           await this.ssh.executeCommand('curl -f --connect-timeout 5 --max-time 10 http://localhost:80/ >/dev/null');
           this.logger.info('✅ Placeholder service responding on port 8080');
 
-          // Test Caddy admin interface
+          // Test Caddy HTTP service
           await this.ssh.executeCommand(
-            'curl -f --connect-timeout 5 --max-time 10 http://localhost:2019/config/ >/dev/null'
+            'curl -f --connect-timeout 5 --max-time 10 http://localhost:8080/dynia-health >/dev/null'
           );
-          this.logger.info('✅ Caddy admin interface responding');
+          this.logger.info('✅ Caddy HTTP service responding');
         },
         {
           maxAttempts: 3,
@@ -1337,6 +1337,10 @@ ${clusterRoutes.map(route => {
     // Step 6: Verify certificate was created successfully
     await this.ssh.executeCommand(`openssl x509 -in ${certPath} -text -noout | head -10`);
     
+    // Step 7: Clean up intermediate files to avoid HAProxy conflicts
+    await this.ssh.executeCommand(`rm -f ${csrPath}`);
+    this.logger.info('Cleaned up intermediate certificate files');
+    
     this.logger.info(`✅ Origin Certificate installed: ${pemPath}`);
   }
 
@@ -1346,31 +1350,39 @@ ${clusterRoutes.map(route => {
   private async callCloudflareOriginAPI(domain: string, csrContent: string): Promise<string> {
     this.logger.info('Calling Cloudflare Origin CA API...');
 
-    // Prepare CSR for JSON (escape newlines and remove any extra whitespace)
-    const csrForJson = csrContent.trim().replace(/\n/g, '\\n');
-
-    const requestBody = {
-      hostnames: [`*.${domain}`],
-      request_type: 'origin-rsa',
-      requested_validity: 5475, // ~15 years
-      csr: csrForJson
-    };
-
-    // Get the Cloudflare token from environment
-    const cfToken = process.env.DYNIA_CF_TOKEN;
-    if (!cfToken) {
-      throw new Error('DYNIA_CF_TOKEN environment variable is required for Origin Certificate generation');
+    // Get the Cloudflare User Service Key from environment
+    const cfApiKey = process.env.DYNIA_CF_API_KEY;
+    
+    if (!cfApiKey) {
+      throw new Error('DYNIA_CF_API_KEY environment variable is required for Origin Certificate generation');
     }
 
-    // Use curl to call the API (more reliable than Node.js fetch in this context)
-    const apiCall = `
-      curl -sX POST https://api.cloudflare.com/client/v4/certificates \\
-        -H "Content-Type: application/json" \\
-        -H "Authorization: Bearer ${cfToken}" \\
-        -d '${JSON.stringify(requestBody)}'
-    `;
+    // Create the JSON payload - CSR content will be properly escaped by JSON.stringify
+    const jsonPayload = {
+      hostnames: [`*.${domain}`],
+      request_type: 'origin-rsa',
+      requested_validity: '5475', // ~15 years (must be string per Cloudflare API docs)
+      csr: csrContent.trim()  // JSON.stringify will handle \n escaping automatically
+    };
+
+    // Write JSON payload to a temporary file using printf for better reliability
+    const tempFile = `/tmp/cf-api-payload-${Date.now()}.json`;
+    const jsonString = JSON.stringify(jsonPayload);
+    await this.ssh.executeCommand(`printf '%s' '${jsonString.replace(/'/g, "'\\''")}' > ${tempFile}`);
+
+    // Use correct Cloudflare Origin CA API authentication (User Service Key)
+    const apiCall = `curl -sX POST https://api.cloudflare.com/client/v4/certificates \\
+      -H "Content-Type: application/json" \\
+      -H "X-Auth-User-Service-Key: ${cfApiKey}" \\
+      -d @${tempFile}`;
 
     const response = await this.ssh.executeCommand(apiCall);
+
+    // Clean up temporary file
+    await this.ssh.executeCommand(`rm -f ${tempFile}`);
+    
+    // Debug: Log the actual API response
+    this.logger.debug(`Cloudflare API raw response: ${response}`);
     
     let apiResponse;
     try {
@@ -1378,6 +1390,9 @@ ${clusterRoutes.map(route => {
     } catch (error) {
       throw new Error(`Invalid API response: ${response}`);
     }
+
+    // Debug: Log parsed response
+    this.logger.debug(`Cloudflare API parsed response: ${JSON.stringify(apiResponse, null, 2)}`);
 
     if (!apiResponse.success) {
       const errors = apiResponse.errors?.map((e: any) => e.message).join(', ') || 'Unknown error';
@@ -1436,7 +1451,8 @@ ${clusterRoutes.map(route => {
         -keyout ${domain}.key -out ${domain}.crt \\
         -subj "/C=US/ST=State/L=City/O=Dynia/CN=*.${domain}" && 
       cat ${domain}.crt ${domain}.key > ${domain}.pem &&
-      chmod 600 ${domain}.pem ${domain}.key ${domain}.crt &&
+      chmod 600 ${domain}.pem &&
+      rm -f ${domain}.key ${domain}.crt ${domain}.csr &&
       ls -la ${domain}.pem
     `);
     

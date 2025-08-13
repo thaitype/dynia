@@ -166,7 +166,7 @@ export class ClusterConfigInspectCommand extends BaseCommand<ClusterConfigInspec
         () => ssh.executeCommand('docker ps --filter "name=dynia-caddy" --format "{{.Status}}"'),
         () => ssh.executeCommand('test -f /opt/dynia/caddy/Caddyfile && echo "exists" || echo "missing"'),
         () => ssh.executeCommand('grep -c "^[a-zA-Z0-9.-]\\+\\.[a-zA-Z]\\+.*{" /opt/dynia/caddy/Caddyfile || echo "0"'),
-        () => ssh.executeCommand('curl -f --connect-timeout 2 --max-time 5 http://localhost:2019/config/ >/dev/null 2>&1')
+        () => ssh.executeCommand('curl -f --connect-timeout 2 --max-time 5 http://localhost:8080/dynia-health >/dev/null 2>&1')
           .then(() => 'accessible')
           .catch(() => 'not-accessible'),
         () => ssh.executeCommand('docker inspect dynia-caddy --format "{{.State.Health.Status}}" 2>/dev/null || echo "no-healthcheck"'),

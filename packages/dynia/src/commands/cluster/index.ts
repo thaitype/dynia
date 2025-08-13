@@ -16,6 +16,7 @@ import { ClusterRepairHaCommand } from './cluster-repair-ha.js';
 import { ClusterNodePrepareCommand } from './cluster-node-prepare.js';
 import { ClusterPrepareCommand } from './cluster-prepare.js';
 import { ClusterConfigInspectCommand } from './cluster-config-inspect.js';
+import { ClusterCertificateCommand } from './cluster-certificate-command.js';
 
 /**
  * Cluster management command module
@@ -407,6 +408,64 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
               handler: createCommandHandler(ClusterConfigInspectCommand),
             })
             .demandCommand(1, 'Please specify a config action')
+            .help(),
+        handler: () => {
+          // This will never be called due to demandCommand(1)
+        },
+      })
+      .command({
+        command: 'certificate <action>',
+        describe: 'Manage SSL certificates for cluster nodes',
+        builder: yargs =>
+          yargs
+            .command({
+              command: 'provision',
+              describe: 'Provision SSL certificates for cluster nodes',
+              builder: yargs =>
+                yargs
+                  .option('domain', {
+                    type: 'string',
+                    describe: 'Override domain for certificate (defaults to cluster domain)',
+                  })
+                  .option('force', {
+                    type: 'boolean',
+                    describe: 'Force certificate provisioning even if certificates exist',
+                    default: false,
+                  })
+                  .example('$0 cluster certificate provision --name testdynia5', 'Provision certificates for cluster')
+                  .example('$0 cluster certificate provision --name testdynia5 --dry-run --verbose', 'Test certificate provisioning with detailed output'),
+              handler: createCommandHandler(ClusterCertificateCommand),
+            })
+            .command({
+              command: 'status',
+              describe: 'Check SSL certificate status for cluster nodes',
+              builder: yargs =>
+                yargs
+                  .option('domain', {
+                    type: 'string',
+                    describe: 'Override domain for certificate check',
+                  })
+                  .example('$0 cluster certificate status --name testdynia5', 'Check certificate status for all nodes'),
+              handler: createCommandHandler(ClusterCertificateCommand),
+            })
+            .command({
+              command: 'renew',
+              describe: 'Renew SSL certificates for cluster nodes',
+              builder: yargs =>
+                yargs
+                  .option('domain', {
+                    type: 'string',
+                    describe: 'Override domain for certificate renewal',
+                  })
+                  .option('force', {
+                    type: 'boolean',
+                    describe: 'Force certificate renewal',
+                    default: false,
+                  })
+                  .example('$0 cluster certificate renew --name testdynia5 --force', 'Force certificate renewal'),
+              handler: createCommandHandler(ClusterCertificateCommand),
+            })
+            .demandCommand(1, 'Please specify a certificate action')
             .help(),
         handler: () => {
           // This will never be called due to demandCommand(1)

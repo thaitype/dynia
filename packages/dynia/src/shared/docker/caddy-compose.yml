@@ -18,7 +18,7 @@ services:
     environment:
       - CADDY_ADMIN=0.0.0.0:2019
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:2019/config/"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/dynia-health"]
       interval: 30s
       timeout: 10s
       retries: 3
