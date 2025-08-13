@@ -105,7 +105,7 @@ export class NodePreparationService {
       role: node.role
     }));
     
-    await infrastructure.installSystemHAProxy(clusterNodes, cluster.name);
+    await infrastructure.installSystemHAProxy(clusterNodes, cluster.name, cluster.reservedIp);
     
     this.logger.info(`✅ HAProxy infrastructure ready on ${nodeName}`);
   }
