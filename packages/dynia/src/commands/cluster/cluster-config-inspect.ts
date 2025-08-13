@@ -263,7 +263,7 @@ export class ClusterConfigInspectCommand extends BaseCommand<ClusterConfigInspec
   }
 
   /**
-   * Inspect HAProxy configuration and status
+   * Inspect HAProxy configuration and status (System service)
    */
   private async inspectHaproxy(ssh: SSHExecutor, node: ClusterNode, full: boolean): Promise<ComponentConfig> {
     const config: ComponentConfig = {
@@ -274,7 +274,7 @@ export class ClusterConfigInspectCommand extends BaseCommand<ClusterConfigInspec
     };
 
     try {
-      // Check if HAProxy is installed/configured first
+      // Check if HAProxy is installed as system service
       const haproxyExists = await ssh.executeCommand('which haproxy >/dev/null 2>&1 && echo "installed" || echo "not-installed"');
       
       if (haproxyExists.trim() === 'not-installed') {
@@ -283,7 +283,7 @@ export class ClusterConfigInspectCommand extends BaseCommand<ClusterConfigInspec
         return config;
       }
 
-      // Create parallel SSH tasks for installed HAProxy
+      // Create parallel SSH tasks for system HAProxy
       const sshTasks = [
         () => ssh.executeCommand('systemctl is-active haproxy 2>/dev/null || echo "inactive"'),
         () => ssh.executeCommand('test -f /etc/haproxy/haproxy.cfg && echo "exists" || echo "missing"')
@@ -294,6 +294,7 @@ export class ClusterConfigInspectCommand extends BaseCommand<ClusterConfigInspec
       
       config.status = serviceStatus.trim() === 'active' ? 'Running' : 'Stopped';
       config.key_config.config_file = configExists.trim();
+      config.key_config.service_status = serviceStatus.trim();
 
       // Additional tasks based on config existence
       const additionalTasks = [];
@@ -314,6 +315,14 @@ export class ClusterConfigInspectCommand extends BaseCommand<ClusterConfigInspec
       if (config.status === 'Running') {
         additionalTasks.push(() => ssh.executeCommand('curl -s http://localhost:8404/stats 2>/dev/null | grep -q "HAProxy Statistics" && echo "accessible" || echo "not-accessible"'));
       }
+
+      // Get service logs if there are issues
+      if (config.status === 'Stopped') {
+        additionalTasks.push(() => ssh.executeCommand('systemctl status haproxy --no-pager -l | tail -5 | tr "\\n" "; " || echo "no-logs"'));
+      }
+
+      // Get process information
+      additionalTasks.push(() => ssh.executeCommand('pgrep haproxy >/dev/null && echo "running" || echo "not-running"'));
 
       // Execute additional tasks in parallel if any
       if (additionalTasks.length > 0) {
@@ -336,7 +345,16 @@ export class ClusterConfigInspectCommand extends BaseCommand<ClusterConfigInspec
 
         if (config.status === 'Running') {
           config.key_config.stats_page = additionalResults[resultIndex].trim();
+          resultIndex++;
         }
+
+        if (config.status === 'Stopped') {
+          config.key_config.recent_logs = additionalResults[resultIndex].trim();
+          resultIndex++;
+        }
+
+        // Always get process status (last task)
+        config.key_config.process_status = additionalResults[resultIndex].trim();
       }
 
     } catch (error) {

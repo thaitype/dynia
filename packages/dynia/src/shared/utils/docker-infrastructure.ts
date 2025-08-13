@@ -160,6 +160,11 @@ echo "   Docker Compose version: $(docker compose version)"
   async deployCaddy(): Promise<void> {
     this.logger.info('Deploying Caddy...');
 
+    // Stop and remove any existing containers to avoid port conflicts
+    await this.ssh.executeCommand('cd /opt/dynia/caddy && docker compose down || true');
+    await this.ssh.executeCommand('docker stop dynia-placeholder dynia-caddy || true');
+    await this.ssh.executeCommand('docker rm dynia-placeholder dynia-caddy || true');
+
     // Create Caddy directories and files
     await this.ssh.executeCommand('mkdir -p /opt/dynia/caddy /var/log/caddy');
 
@@ -188,6 +193,11 @@ echo "   Docker Compose version: $(docker compose version)"
    */
   async deployHAProxy(clusterNodes: Array<{twoWordId: string; privateIp: string; publicIp: string; role?: string}>, clusterName: string): Promise<void> {
     this.logger.info('Deploying HAProxy load balancer...');
+
+    // Stop and remove any existing HAProxy container to avoid conflicts
+    await this.ssh.executeCommand('cd /opt/dynia/haproxy && docker compose down || true');
+    await this.ssh.executeCommand('docker stop dynia-haproxy || true');
+    await this.ssh.executeCommand('docker rm dynia-haproxy || true');
 
     // Create HAProxy directories
     await this.ssh.executeCommand('mkdir -p /opt/dynia/haproxy/certs');
@@ -241,6 +251,79 @@ echo "   Docker Compose version: $(docker compose version)"
     await this.ssh.executeCommand('cd /opt/dynia/haproxy && docker compose up -d');
 
     this.logger.info('✅ HAProxy deployed successfully');
+  }
+
+  /**
+   * Install and configure HAProxy as system service (non-Docker)
+   */
+  async installSystemHAProxy(clusterNodes: Array<{twoWordId: string; privateIp: string; publicIp: string; role?: string}>, clusterName: string): Promise<void> {
+    this.logger.info('Installing HAProxy as system service...');
+
+    // Stop and remove any existing Docker HAProxy first
+    await this.ssh.executeCommand('cd /opt/dynia/haproxy && docker compose down || true');
+    await this.ssh.executeCommand('docker stop dynia-haproxy || true');
+    await this.ssh.executeCommand('docker rm dynia-haproxy || true');
+
+    // Install HAProxy system package
+    await this.ssh.executeCommand(`
+      apt update && 
+      apt install -y haproxy
+    `);
+
+    // Create directories for certificates and backups
+    await this.ssh.executeCommand('mkdir -p /etc/ssl/private /etc/haproxy/backup');
+
+    // Generate SSL certificate for HAProxy
+    await this.ssh.executeCommand(`
+      cd /etc/ssl/private &&
+      openssl req -x509 -nodes -days 365 -newkey rsa:2048 \\
+        -keyout haproxy.key -out haproxy.crt \\
+        -subj "/C=US/ST=State/L=City/O=Dynia/CN=*.${this.domain}" && 
+      cat haproxy.crt haproxy.key > haproxy.pem &&
+      chmod 600 haproxy.pem haproxy.key
+    `);
+
+    // Generate HAProxy configuration from template
+    const activeNode = clusterNodes.find(n => n.role === 'active') || clusterNodes[0];
+    const haproxyTemplate = await this.loadTemplate('system-haproxy.cfg');
+    
+    // Generate backend servers for all cluster nodes (pointing to Caddy internal ports)
+    const backendServers = clusterNodes.map((node, index) => {
+      const serverId = `node${index + 1}`;
+      // Use private IP for VPC communication, fallback to public IP
+      const serverIp = node.privateIp || node.publicIp;
+      return `    server ${serverId} ${serverIp}:8080 check inter 5s fall 3 rise 2`;
+    }).join('\n');
+
+    // Replace template placeholders
+    const haproxyConfig = haproxyTemplate
+      .replace(/{{CLUSTER_NAME}}/g, clusterName)
+      .replace(/{{ACTIVE_NODE}}/g, activeNode.twoWordId)
+      .replace(/{{TOTAL_NODES}}/g, clusterNodes.length.toString())
+      .replace(/{{BACKEND_SERVERS}}/g, backendServers)
+      .replace(/{{HOST_ACLS}}/g, '    # Host-based routing will be configured per deployment')
+      .replace(/{{BACKENDS}}/g, '# Dynamic backends will be added per service deployment');
+
+    // Backup existing config if it exists
+    await this.ssh.executeCommand('cp /etc/haproxy/haproxy.cfg /etc/haproxy/backup/haproxy.cfg.$(date +%Y%m%d-%H%M%S) 2>/dev/null || true');
+
+    // Deploy HAProxy configuration
+    await this.ssh.copyContent(haproxyConfig, '/etc/haproxy/haproxy.cfg');
+
+    // Test configuration before restarting
+    await this.ssh.executeCommand('haproxy -c -f /etc/haproxy/haproxy.cfg');
+
+    // Enable and start HAProxy service
+    await this.ssh.executeCommand(`
+      systemctl enable haproxy &&
+      systemctl restart haproxy &&
+      systemctl is-active haproxy
+    `);
+
+    // Verify HAProxy is listening on expected ports
+    await this.ssh.executeCommand('sleep 3 && ss -tlnp | grep -E ":(80|443|8404)" | head -5');
+
+    this.logger.info('✅ System HAProxy installed and configured successfully');
   }
 
   /**
@@ -442,7 +525,6 @@ global
     daemon
     log stdout local0 info
     maxconn 4096
-    stats socket /var/run/haproxy.sock mode 600 level admin
     stats timeout 2m
     
     # TLS Configuration
@@ -479,7 +561,7 @@ frontend public_http
     redirect scheme https code 301
 
 frontend public_https  
-    bind *:443 ssl crt /etc/ssl/certs/
+    bind *:443 ssl crt /etc/ssl/certs/default.pem
     mode http
     
     # Host-based routing ACLs
@@ -496,6 +578,88 @@ backend cluster_backends
     balance roundrobin
     option httpchk GET /healthz
     http-check expect status 200
+    
+{{BACKEND_SERVERS}}`,
+
+      'system-haproxy.cfg': `# Dynia HAProxy Configuration - System Service
+# Generated by Dynia CLI for cluster: {{CLUSTER_NAME}}
+# Active Node: {{ACTIVE_NODE}} | Total Nodes: {{TOTAL_NODES}}
+
+global
+    daemon
+    log 127.0.0.1:514 local0 info
+    chroot /var/lib/haproxy
+    stats socket /run/haproxy/admin.sock mode 660 level admin
+    stats timeout 30s
+    user haproxy
+    group haproxy
+    maxconn 4096
+    
+    # TLS Configuration
+    ssl-default-bind-ciphers ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384
+    ssl-default-bind-options ssl-min-ver TLSv1.2 no-tls-tickets
+    
+
+defaults
+    mode http
+    log global
+    option httplog
+    option dontlognull
+    option log-health-checks
+    option forwardfor
+    option http-server-close
+    timeout connect 5000ms
+    timeout client 50000ms
+    timeout server 50000ms
+    retries 3
+
+# HAProxy Stats Interface (HTTP)
+listen stats
+    bind *:8404
+    stats enable
+    stats uri /stats
+    stats refresh 30s
+    stats admin if TRUE
+    stats show-legends
+    stats show-node
+    stats auth admin:dynia-admin
+
+# Frontend - Public HTTP Traffic
+frontend public_http
+    bind *:80
+    mode http
+    
+    # Redirect HTTP to HTTPS
+    redirect scheme https code 301 if !{ ssl_fc }
+
+# Frontend - Public HTTPS Traffic  
+frontend public_https  
+    bind *:443 ssl crt /etc/ssl/private/haproxy.pem
+    mode http
+    
+    # Security headers
+    http-response set-header X-Frame-Options DENY
+    http-response set-header X-Content-Type-Options nosniff
+    http-response set-header X-XSS-Protection "1; mode=block"
+    
+    # Host-based routing ACLs
+{{HOST_ACLS}}
+    
+    # Default backend (fallback)
+    default_backend cluster_backends
+
+{{BACKENDS}}
+
+# Default backend pool - all cluster nodes (Caddy internal ports)
+backend cluster_backends
+    mode http
+    balance roundrobin
+    option httpchk GET /dynia-health
+    http-check expect status 200
+    
+    # Enable compression
+    compression algo gzip
+    compression type text/html text/plain text/css text/javascript application/javascript application/json
     
 {{BACKEND_SERVERS}}`,
     };
@@ -553,7 +717,7 @@ services:
     image: nginx:alpine
     container_name: dynia-placeholder
     ports:
-      - "8080:8080"
+      - "8081:80"  # Use internal port 8081, nginx listens on 80 internally
     volumes:
       - /opt/dynia/placeholder/index.html:/usr/share/nginx/html/index.html:ro
       - /opt/dynia/placeholder/nginx.conf:/etc/nginx/nginx.conf:ro
@@ -586,8 +750,6 @@ services:
     networks:
       - edge
     restart: unless-stopped
-    depends_on:
-      - caddy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8404/stats"]
       interval: 30s
