@@ -1,6 +1,7 @@
 import { BaseCommand } from '../../shared/base/base-command.js';
 import { ValidationUtils } from '../../shared/utils/validation.js';
 import type { ClusterNode } from '../../shared/types/index.js';
+import { Table } from 'console-table-printer';
 
 export interface ClusterNodeListOptions {
   cluster: string;
@@ -73,72 +74,33 @@ export class ClusterNodeListCommand extends BaseCommand<ClusterNodeListOptions> 
    * Display nodes in a formatted table
    */
   private displayNodesTable(nodes: ClusterNode[]): void {
-    // Calculate column widths
-    const maxNodeIdWidth = Math.max(8, ...nodes.map(n => n.twoWordId.length));
-    const maxPublicIpWidth = Math.max(9, ...nodes.map(n => n.publicIp.length));
-    const maxPrivateIpWidth = Math.max(10, ...nodes.map(n => (n.privateIp || 'N/A').length));
+    const table = new Table({
+      columns: [
+        { name: 'nodeId', title: 'Node ID', alignment: 'left' },
+        { name: 'role', title: 'Role', alignment: 'center' },
+        { name: 'priority', title: 'Priority', alignment: 'center' },
+        { name: 'publicIp', title: 'Public IP', alignment: 'left' },
+        { name: 'privateIp', title: 'Private IP', alignment: 'left' },
+        { name: 'status', title: 'Status', alignment: 'center' }
+      ]
+    });
 
-    // Header
-    const header = [
-      '┌─'.padEnd(maxNodeIdWidth + 1, '─') + '─┬─',
-      'Role'.padEnd(7, '─') + '─┬─',
-      'Priority'.padEnd(8, '─') + '─┬─',
-      'Public IP'.padEnd(maxPublicIpWidth, '─') + '─┬─',
-      'Private IP'.padEnd(maxPrivateIpWidth, '─') + '─┬─',
-      'Status'.padEnd(7, '─') + '─┐'
-    ].join('');
-
-    const titleRow = [
-      '│ Node ID'.padEnd(maxNodeIdWidth + 1) + ' │',
-      ' Role'.padEnd(7) + ' │',
-      ' Priority'.padEnd(8) + ' │',
-      ' Public IP'.padEnd(maxPublicIpWidth) + ' │',
-      ' Private IP'.padEnd(maxPrivateIpWidth) + ' │',
-      ' Status'.padEnd(7) + ' │'
-    ].join('');
-
-    const separator = [
-      '├─'.padEnd(maxNodeIdWidth + 1, '─') + '─┼─',
-      ''.padEnd(7, '─') + '─┼─',
-      ''.padEnd(8, '─') + '─┼─',
-      ''.padEnd(maxPublicIpWidth, '─') + '─┼─',
-      ''.padEnd(maxPrivateIpWidth, '─') + '─┼─',
-      ''.padEnd(7, '─') + '─┤'
-    ].join('');
-
-    console.log(header);
-    console.log(titleRow);
-    console.log(separator);
-
-    // Data rows
-    for (const node of nodes) {
+    nodes.forEach(node => {
       const role = node.role === 'active' ? '🟢 active' : '🔵 standby';
       const status = this.getStatusDisplay(node.status);
       const privateIp = node.privateIp || 'N/A';
 
-      const row = [
-        `│ ${node.twoWordId}`.padEnd(maxNodeIdWidth + 1) + ' │',
-        ` ${role}`.padEnd(7) + ' │',
-        ` ${node.priority}`.padEnd(8) + ' │',
-        ` ${node.publicIp}`.padEnd(maxPublicIpWidth) + ' │',
-        ` ${privateIp}`.padEnd(maxPrivateIpWidth) + ' │',
-        ` ${status}`.padEnd(7) + ' │'
-      ].join('');
+      table.addRow({
+        nodeId: node.twoWordId,
+        role: role,
+        priority: node.priority.toString(),
+        publicIp: node.publicIp,
+        privateIp: privateIp,
+        status: status
+      });
+    });
 
-      console.log(row);
-    }
-
-    // Footer
-    const footer = [
-      '└─'.padEnd(maxNodeIdWidth + 1, '─') + '─┴─',
-      ''.padEnd(7, '─') + '─┴─',
-      ''.padEnd(8, '─') + '─┴─',
-      ''.padEnd(maxPublicIpWidth, '─') + '─┴─',
-      ''.padEnd(maxPrivateIpWidth, '─') + '─┴─',
-      ''.padEnd(7, '─') + '─┘'
-    ].join('');
-
-    console.log(footer);
+    table.printTable();
   }
 
   /**

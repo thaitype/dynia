@@ -1,5 +1,6 @@
 import { BaseCommand } from '../../shared/base/base-command.js';
 import { createDigitalOceanProvider } from '../../core/providers/digitalocean-provider.js';
+import { Table } from 'console-table-printer';
 
 export interface ClusterReservedIpListOptions {
   region?: string;
@@ -60,16 +61,18 @@ export class ClusterReservedIpListCommand extends BaseCommand<ClusterReservedIpL
       this.logger.info(`Found ${filteredIps.length} Reserved IP${filteredIps.length === 1 ? '' : 's'}:`);
       this.logger.info(`  Assigned: ${assignedCount}, Unassigned: ${unassignedCount}\n`);
 
-      // Display table header
-      console.log('┌─────────────────┬──────────────┬─────────────────┬─────────────────┐');
-      console.log('│ IP Address      │ Region       │ Assigned To     │ Status          │');
-      console.log('├─────────────────┼──────────────┼─────────────────┼─────────────────┤');
+      // Display table
+      const table = new Table({
+        columns: [
+          { name: 'ipAddress', title: 'IP Address', alignment: 'left' },
+          { name: 'region', title: 'Region', alignment: 'center' },
+          { name: 'assignedTo', title: 'Assigned To', alignment: 'left' },
+          { name: 'status', title: 'Status', alignment: 'center' }
+        ]
+      });
 
       // Display each Reserved IP
       for (const ip of filteredIps) {
-        const ipAddress = ip.ip.padEnd(15).substring(0, 15);
-        const regionName = ip.region.padEnd(12).substring(0, 12);
-        
         let assignedTo = 'None';
         let statusIcon = '🟡';
         
@@ -86,15 +89,19 @@ export class ClusterReservedIpListCommand extends BaseCommand<ClusterReservedIpL
           }
         }
         
-        const assignedToStr = assignedTo.padEnd(15).substring(0, 15);
         const statusStr = ip.dropletId 
-          ? `${statusIcon} Assigned`.padEnd(15) 
-          : `🆓 Available`.padEnd(15);
+          ? `${statusIcon} Assigned`
+          : `🆓 Available`;
         
-        console.log(`│ ${ipAddress} │ ${regionName} │ ${assignedToStr} │ ${statusStr} │`);
+        table.addRow({
+          ipAddress: ip.ip,
+          region: ip.region,
+          assignedTo: assignedTo,
+          status: statusStr
+        });
       }
       
-      console.log('└─────────────────┴──────────────┴─────────────────┴─────────────────┘');
+      table.printTable();
 
       // Show available actions
       console.log('\nUseful commands:');

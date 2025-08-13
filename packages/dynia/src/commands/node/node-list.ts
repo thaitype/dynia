@@ -1,5 +1,6 @@
 import { BaseCommand } from '../../shared/base/base-command.js';
 import { Helpers } from '../../shared/utils/helpers.js';
+import { Table } from 'console-table-printer';
 
 /**
  * Command to list all nodes
@@ -49,33 +50,30 @@ export class NodeListCommand extends BaseCommand {
   private displayTable(rows: Array<Record<string, string>>): void {
     if (rows.length === 0) return;
 
-    // Get column widths
     const keys = Object.keys(rows[0]);
-    const widths = keys.reduce(
-      (acc, key) => {
-        const maxWidth = Math.max(key.length, ...rows.map(row => row[key]?.length || 0));
-        acc[key] = Math.min(maxWidth, 50); // Cap at 50 chars
+    
+    // Create table with dynamic columns
+    const table = new Table({
+      columns: keys.map(key => ({
+        name: key,
+        title: key,
+        alignment: 'left' as const
+      }))
+    });
+
+    // Add all rows to table
+    rows.forEach(row => {
+      // Truncate long values to prevent overly wide tables
+      const truncatedRow = keys.reduce((acc, key) => {
+        const value = row[key] || '';
+        acc[key] = value.length > 50 ? Helpers.truncate(value, 50) : value;
         return acc;
-      },
-      {} as Record<string, number>
-    );
+      }, {} as Record<string, string>);
+      
+      table.addRow(truncatedRow);
+    });
 
-    // Print header
-    const header = keys.map(key => key.padEnd(widths[key])).join(' | ');
-    console.log(header);
-    console.log(keys.map(key => '-'.repeat(widths[key])).join('-|-'));
-
-    // Print rows
-    for (const row of rows) {
-      const line = keys
-        .map(key => {
-          const value = row[key] || '';
-          return value.length > widths[key] ? Helpers.truncate(value, widths[key]) : value.padEnd(widths[key]);
-        })
-        .join(' | ');
-      console.log(line);
-    }
-
+    table.printTable();
     console.log(''); // Empty line after table
   }
 }
