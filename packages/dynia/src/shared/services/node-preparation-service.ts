@@ -105,7 +105,11 @@ export class NodePreparationService {
       role: node.role
     }));
     
+    // Step 1: Install and configure HAProxy
     await infrastructure.installSystemHAProxy(clusterNodes, cluster.name, cluster.reservedIp);
+    
+    // Step 2: Ensure certificates are provisioned (independent of HAProxy installation)
+    await infrastructure.ensureCertificates(baseDomain);
     
     this.logger.info(`✅ HAProxy infrastructure ready on ${nodeName}`);
   }

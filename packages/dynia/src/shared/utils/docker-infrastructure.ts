@@ -271,23 +271,8 @@ echo "   Docker Compose version: $(docker compose version)"
       apt install -y haproxy
     `);
 
-    // Create directories for certificates and backups
-    await this.ssh.executeCommand('mkdir -p /etc/haproxy/certs /etc/haproxy/backup /etc/ssl/private');
-
-    // Set up certificate directory with proper permissions
-    await this.ssh.executeCommand('chmod 700 /etc/haproxy/certs');
-
-    // Generate temporary self-signed certificate as fallback
-    // TODO: Replace with Cloudflare Origin Certificate in production
-    await this.ssh.executeCommand(`
-      cd /etc/ssl/private &&
-      openssl req -x509 -nodes -days 365 -newkey rsa:2048 \\
-        -keyout haproxy.key -out haproxy.crt \\
-        -subj "/C=US/ST=State/L=City/O=Dynia/CN=*.${this.domain}" && 
-      cat haproxy.crt haproxy.key > haproxy.pem &&
-      chmod 600 haproxy.pem haproxy.key &&
-      cp haproxy.pem /etc/haproxy/certs/${this.domain}.pem
-    `);
+    // Note: Certificate provisioning is now handled separately via ensureCertificates()
+    // This allows certificates to be managed independently of HAProxy installation
 
     // Generate HAProxy configuration from template
     const activeNode = clusterNodes.find(n => n.role === 'active') || clusterNodes[0];
@@ -385,7 +370,7 @@ echo "   Docker Compose version: $(docker compose version)"
     admin off
 }
 
-:8080 {
+:80 {
     # Health check endpoint for HAProxy
     handle_path /dynia-health {
         respond "Dynia Node: {{NODE_NAME}} - OK" 200
@@ -746,7 +731,7 @@ services:
       - edge
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -923,7 +908,7 @@ networks:
       await Helpers.retry(
         async () => {
           // Test placeholder service directly
-          await this.ssh.executeCommand('curl -f --connect-timeout 5 --max-time 10 http://localhost:8080/ >/dev/null');
+          await this.ssh.executeCommand('curl -f --connect-timeout 5 --max-time 10 http://localhost:80/ >/dev/null');
           this.logger.info('✅ Placeholder service responding on port 8080');
 
           // Test Caddy admin interface
@@ -1254,7 +1239,7 @@ networks:
     admin off
 }
 
-:8080 {
+:80 {
     # Health check endpoint for HAProxy
     handle_path /dynia-health {
         header Content-Type application/json
@@ -1263,8 +1248,8 @@ networks:
     
 ${clusterRoutes.map(route => {
   return `    # Route for ${route.host}
-    @host_${route.host.replace(/[.-]/g, '_')} host ${route.host}
-    handle @host_${route.host.replace(/[.-]/g, '_')} {
+    @host_${route.host.replace(/\./g, '_dot_').replace(/-/g, '_dash_')} host ${route.host}
+    handle @host_${route.host.replace(/\./g, '_dot_').replace(/-/g, '_dash_')} {
         reverse_proxy dynia-placeholder:80
         header {
             X-Frame-Options DENY
@@ -1311,5 +1296,230 @@ ${clusterRoutes.map(route => {
 
     // For backward compatibility, generate a single-route Caddyfile
     await this.generateCompleteCaddyfile([{host: domain, healthPath}]);
+  }
+
+  /**
+   * Generate Cloudflare Origin Certificate automatically via API
+   * Implements tlsMode 1: haproxy-origin certificate management
+   */
+  private async generateCloudflareOriginCertificate(domain: string): Promise<void> {
+    this.logger.info(`Generating Cloudflare Origin Certificate for *.${domain}...`);
+
+    const keyPath = `/etc/haproxy/certs/${domain}.key`;
+    const csrPath = `/etc/haproxy/certs/${domain}.csr`;
+    const certPath = `/etc/haproxy/certs/${domain}.crt`;
+    const pemPath = `/etc/haproxy/certs/${domain}.pem`;
+
+    // Step 1: Generate private key and CSR on the target node
+    await this.ssh.executeCommand(`
+      openssl req -new -newkey rsa:2048 -nodes \\
+        -keyout ${keyPath} \\
+        -out ${csrPath} \\
+        -subj "/CN=*.${domain}"
+    `);
+
+    // Step 2: Read CSR content and prepare for API
+    const csrContent = await this.ssh.executeCommand(`cat ${csrPath}`);
+    
+    // Step 3: Call Cloudflare Origin CA API
+    const certificateContent = await this.callCloudflareOriginAPI(domain, csrContent.trim());
+    
+    // Step 4: Write certificate to file
+    await this.ssh.copyContent(certificateContent, certPath);
+    
+    // Step 5: Create HAProxy-format PEM file (cert + key)
+    await this.ssh.executeCommand(`
+      cat ${certPath} ${keyPath} > ${pemPath} &&
+      chmod 600 ${pemPath} ${keyPath} ${certPath} &&
+      chown root:root ${pemPath} ${keyPath} ${certPath}
+    `);
+
+    // Step 6: Verify certificate was created successfully
+    await this.ssh.executeCommand(`openssl x509 -in ${certPath} -text -noout | head -10`);
+    
+    this.logger.info(`✅ Origin Certificate installed: ${pemPath}`);
+  }
+
+  /**
+   * Call Cloudflare Origin CA API to generate certificate from CSR
+   */
+  private async callCloudflareOriginAPI(domain: string, csrContent: string): Promise<string> {
+    this.logger.info('Calling Cloudflare Origin CA API...');
+
+    // Prepare CSR for JSON (escape newlines and remove any extra whitespace)
+    const csrForJson = csrContent.trim().replace(/\n/g, '\\n');
+
+    const requestBody = {
+      hostnames: [`*.${domain}`],
+      request_type: 'origin-rsa',
+      requested_validity: 5475, // ~15 years
+      csr: csrForJson
+    };
+
+    // Get the Cloudflare token from environment
+    const cfToken = process.env.DYNIA_CF_TOKEN;
+    if (!cfToken) {
+      throw new Error('DYNIA_CF_TOKEN environment variable is required for Origin Certificate generation');
+    }
+
+    // Use curl to call the API (more reliable than Node.js fetch in this context)
+    const apiCall = `
+      curl -sX POST https://api.cloudflare.com/client/v4/certificates \\
+        -H "Content-Type: application/json" \\
+        -H "Authorization: Bearer ${cfToken}" \\
+        -d '${JSON.stringify(requestBody)}'
+    `;
+
+    const response = await this.ssh.executeCommand(apiCall);
+    
+    let apiResponse;
+    try {
+      apiResponse = JSON.parse(response);
+    } catch (error) {
+      throw new Error(`Invalid API response: ${response}`);
+    }
+
+    if (!apiResponse.success) {
+      const errors = apiResponse.errors?.map((e: any) => e.message).join(', ') || 'Unknown error';
+      throw new Error(`Cloudflare API error: ${errors}`);
+    }
+
+    if (!apiResponse.result?.certificate) {
+      throw new Error('No certificate returned from Cloudflare API');
+    }
+
+    this.logger.info('✅ Certificate received from Cloudflare Origin CA');
+    return apiResponse.result.certificate;
+  }
+
+  /**
+   * Ensure certificate directories exist with proper permissions
+   */
+  async ensureCertificateDirectories(): Promise<void> {
+    this.logger.info('Setting up certificate directories...');
+    
+    // Create directories for certificates and backups
+    await this.ssh.executeCommand('mkdir -p /etc/haproxy/certs /etc/haproxy/backup /etc/ssl/private');
+
+    // Set up certificate directory with proper permissions
+    await this.ssh.executeCommand('chmod 700 /etc/haproxy/certs');
+    
+    this.logger.info('✅ Certificate directories configured');
+  }
+
+  /**
+   * Provision Cloudflare Origin Certificate for the domain
+   * This is independent of HAProxy installation
+   */
+  async provisionCloudflareOriginCertificate(domain: string): Promise<void> {
+    this.logger.info(`Provisioning Cloudflare Origin Certificate for *.${domain}...`);
+    
+    try {
+      await this.generateCloudflareOriginCertificate(domain);
+      this.logger.info('✅ Cloudflare Origin Certificate provisioned successfully');
+    } catch (error) {
+      this.logger.warn(`⚠️ Cloudflare Origin Certificate generation failed: ${error}`);
+      this.logger.info('Falling back to self-signed certificate');
+      await this.generateFallbackCertificate(domain);
+    }
+  }
+
+  /**
+   * Generate self-signed certificate as fallback
+   */
+  async generateFallbackCertificate(domain: string): Promise<void> {
+    this.logger.info(`Generating fallback self-signed certificate for *.${domain}...`);
+    
+    await this.ssh.executeCommand(`
+      cd /etc/haproxy/certs &&
+      openssl req -x509 -nodes -days 365 -newkey rsa:2048 \\
+        -keyout ${domain}.key -out ${domain}.crt \\
+        -subj "/C=US/ST=State/L=City/O=Dynia/CN=*.${domain}" && 
+      cat ${domain}.crt ${domain}.key > ${domain}.pem &&
+      chmod 600 ${domain}.pem ${domain}.key ${domain}.crt &&
+      ls -la ${domain}.pem
+    `);
+    
+    this.logger.info('✅ Fallback self-signed certificate generated');
+  }
+
+  /**
+   * Validate that certificates are properly installed
+   */
+  async validateCertificateInstallation(domain: string): Promise<{ isValid: boolean; isCloudflare: boolean; expiryDays: number }> {
+    const certPath = `/etc/haproxy/certs/${domain}.crt`;
+    const pemPath = `/etc/haproxy/certs/${domain}.pem`;
+    
+    try {
+      // Check if certificate files exist
+      await this.ssh.executeCommand(`test -f ${certPath} && test -f ${pemPath}`);
+      
+      // Get certificate info
+      const certInfo = await this.ssh.executeCommand(`openssl x509 -in ${certPath} -noout -subject -issuer -dates`);
+      
+      // Check if it's a Cloudflare certificate (issuer contains "Cloudflare")
+      const isCloudflare = certInfo.includes('Cloudflare');
+      const isSelfSigned = certInfo.includes('issuer=C = US, ST = State, L = City, O = Dynia');
+      
+      // Calculate days until expiry
+      const expiryMatch = certInfo.match(/notAfter=(.+)/);
+      let expiryDays = 0;
+      
+      if (expiryMatch) {
+        const expiryDate = new Date(expiryMatch[1]);
+        const now = new Date();
+        expiryDays = Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      }
+      
+      return {
+        isValid: true,
+        isCloudflare: isCloudflare,
+        expiryDays: expiryDays
+      };
+      
+    } catch (error) {
+      this.logger.warn(`Certificate validation failed: ${error}`);
+      return {
+        isValid: false,
+        isCloudflare: false,
+        expiryDays: 0
+      };
+    }
+  }
+
+  /**
+   * Ensure certificates are provisioned for the domain
+   * This method is idempotent and can be called multiple times safely
+   */
+  async ensureCertificates(domain: string): Promise<void> {
+    this.logger.info(`Ensuring certificates are provisioned for *.${domain}...`);
+    
+    // Step 1: Ensure directories exist
+    await this.ensureCertificateDirectories();
+    
+    // Step 2: Check existing certificates
+    const certStatus = await this.validateCertificateInstallation(domain);
+    
+    if (certStatus.isValid) {
+      if (certStatus.isCloudflare) {
+        this.logger.info(`✅ Valid Cloudflare Origin Certificate found (expires in ${certStatus.expiryDays} days)`);
+      } else {
+        this.logger.warn(`⚠️ Self-signed certificate found (expires in ${certStatus.expiryDays} days)`);
+        this.logger.info('Attempting to upgrade to Cloudflare Origin Certificate...');
+        await this.provisionCloudflareOriginCertificate(domain);
+      }
+    } else {
+      this.logger.info('No valid certificates found, provisioning new certificates...');
+      await this.provisionCloudflareOriginCertificate(domain);
+    }
+    
+    // Step 3: Final validation
+    const finalStatus = await this.validateCertificateInstallation(domain);
+    if (finalStatus.isValid) {
+      const certType = finalStatus.isCloudflare ? 'Cloudflare Origin' : 'Self-signed';
+      this.logger.info(`✅ Certificate provisioning complete: ${certType} certificate installed`);
+    } else {
+      throw new Error('Certificate provisioning failed - no valid certificates found');
+    }
   }
 }
