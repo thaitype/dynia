@@ -4,7 +4,7 @@ import type { ClusterNode } from '../../shared/types/index.js';
 import { Table } from 'console-table-printer';
 
 export interface ClusterNodeListOptions {
-  cluster: string;
+  name: string;
 }
 
 /**
@@ -13,10 +13,10 @@ export interface ClusterNodeListOptions {
  */
 export class ClusterNodeListCommand extends BaseCommand<ClusterNodeListOptions> {
   protected async run(): Promise<void> {
-    const { cluster: clusterName } = this.argv;
+    const { name: clusterName } = this.argv;
 
     // Validate inputs
-    ValidationUtils.validateRequiredArgs(this.argv, ['cluster']);
+    ValidationUtils.validateRequiredArgs(this.argv, ['name']);
 
     this.logger.info(`Listing nodes in cluster: ${clusterName}`);
 
@@ -65,7 +65,7 @@ export class ClusterNodeListCommand extends BaseCommand<ClusterNodeListOptions> 
     // Show helpful commands
     console.log('\nUseful commands:');
     console.log(`  dynia cluster node add --name ${clusterName}             # Add more nodes`);
-    console.log(`  dynia cluster node activate ${clusterName} <node-id>     # Change active node`);
+    console.log(`  dynia cluster node activate --name ${clusterName} --node <node-id>     # Change active node`);
     console.log(`  dynia cluster deployment create --name ${clusterName} --placeholder # Deploy test service`);
     console.log(`  dynia cluster repair-ha ${clusterName}                   # Repair cluster issues`);
   }

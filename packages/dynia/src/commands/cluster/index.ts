@@ -15,6 +15,7 @@ import { ClusterDeploymentCreateCommand } from './cluster-deployment-create.js';
 import { ClusterRepairHaCommand } from './cluster-repair-ha.js';
 import { ClusterNodePrepareCommand } from './cluster-node-prepare.js';
 import { ClusterPrepareCommand } from './cluster-prepare.js';
+import { ClusterConfigInspectCommand } from './cluster-config-inspect.js';
 
 /**
  * Cluster management command module
@@ -94,7 +95,7 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
               describe: 'Add node(s) to cluster',
               builder: yargs =>
                 yargs
-                  .option('cluster', {
+                  .option('name', {
                     type: 'string',
                     describe: 'Cluster name',
                     demandOption: true,
@@ -104,8 +105,8 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
                     describe: 'Number of nodes to add',
                     default: 1,
                   })
-                  .example('$0 cluster node add --cluster myapp', 'Add one node to cluster')
-                  .example('$0 cluster node add --cluster myapp --count 2', 'Add two nodes to cluster'),
+                  .example('$0 cluster node add --name myapp', 'Add one node to cluster')
+                  .example('$0 cluster node add --name myapp --count 2', 'Add two nodes to cluster'),
               handler: createCommandHandler(ClusterNodeAddCommand),
             })
             .command({
@@ -113,7 +114,7 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
               describe: 'Remove a node from cluster',
               builder: yargs =>
                 yargs
-                  .option('cluster', {
+                  .option('name', {
                     type: 'string',
                     describe: 'Cluster name',
                     demandOption: true,
@@ -129,7 +130,7 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
                     default: false,
                   })
                   .example(
-                    '$0 cluster node remove --cluster myapp --node brave-panda --confirm',
+                    '$0 cluster node remove --name myapp --node brave-panda --confirm',
                     'Remove node from cluster'
                   ),
               handler: createCommandHandler(ClusterNodeRemoveCommand),
@@ -139,7 +140,7 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
               describe: 'Make a node active (move Reserved IP)',
               builder: yargs =>
                 yargs
-                  .option('cluster', {
+                  .option('name', {
                     type: 'string',
                     describe: 'Cluster name',
                     demandOption: true,
@@ -150,7 +151,7 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
                     demandOption: true,
                   })
                   .example(
-                    '$0 cluster node activate --cluster myapp --node misty-owl',
+                    '$0 cluster node activate --name myapp --node misty-owl',
                     'Make misty-owl the active node'
                   ),
               handler: createCommandHandler(ClusterNodeActivateCommand),
@@ -160,12 +161,12 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
               describe: 'List nodes in a cluster',
               builder: yargs =>
                 yargs
-                  .option('cluster', {
+                  .option('name', {
                     type: 'string',
                     describe: 'Cluster name',
                     demandOption: true,
                   })
-                  .example('$0 cluster node list --cluster myapp', 'List all nodes in cluster'),
+                  .example('$0 cluster node list --name myapp', 'List all nodes in cluster'),
               handler: createCommandHandler(ClusterNodeListCommand),
             })
             .command({
@@ -173,7 +174,7 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
               describe: 'Prepare node infrastructure (Docker + Caddy + keepalived)',
               builder: yargs =>
                 yargs
-                  .option('cluster', {
+                  .option('name', {
                     type: 'string',
                     describe: 'Cluster name',
                     demandOption: true,
@@ -189,11 +190,11 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
                     default: false,
                   })
                   .example(
-                    '$0 cluster node prepare --cluster myapp --node brave-panda',
+                    '$0 cluster node prepare --name myapp --node brave-panda',
                     'Prepare node infrastructure'
                   )
                   .example(
-                    '$0 cluster node prepare --cluster myapp --node brave-panda --force',
+                    '$0 cluster node prepare --name myapp --node brave-panda --force',
                     'Force re-preparation of node'
                   ),
               handler: createCommandHandler(ClusterNodePrepareCommand),
@@ -319,7 +320,7 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
               describe: 'Assign Reserved IP to cluster node',
               builder: yargs =>
                 yargs
-                  .option('cluster', {
+                  .option('name', {
                     type: 'string',
                     describe: 'Cluster name',
                     demandOption: true,
@@ -330,7 +331,7 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
                     demandOption: true,
                   })
                   .example(
-                    '$0 cluster reserved-ip assign --cluster myapp --node brave-panda',
+                    '$0 cluster reserved-ip assign --name myapp --node brave-panda',
                     'Assign Reserved IP to specific node'
                   ),
               handler: createCommandHandler(ClusterReservedIpAssignCommand),
@@ -357,6 +358,59 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
               handler: createCommandHandler(ClusterReservedIpListCommand),
             })
             .demandCommand(1, 'Please specify a Reserved IP action')
+            .help(),
+        handler: () => {
+          // This will never be called due to demandCommand(1)
+        },
+      })
+      .command({
+        command: 'config <action>',
+        describe: 'Inspect cluster configuration',
+        builder: yargs =>
+          yargs
+            .command({
+              command: 'inspect',
+              describe: 'Show live configuration of cluster nodes and components',
+              builder: yargs =>
+                yargs
+                  .option('name', {
+                    type: 'string',
+                    describe: 'Cluster name',
+                    demandOption: true,
+                  })
+                  .option('component', {
+                    type: 'string',
+                    choices: ['caddy', 'docker', 'keepalived', 'system'],
+                    describe: 'Show configuration for specific component only',
+                  })
+                  .option('node', {
+                    type: 'string',
+                    describe: 'Show configuration for specific node only (two-word ID)',
+                  })
+                  .option('full', {
+                    type: 'boolean',
+                    describe: 'Display full configuration instead of summary',
+                    default: false,
+                  })
+                  .example(
+                    '$0 cluster config inspect --name myapp',
+                    'Show summary of all components on all nodes'
+                  )
+                  .example(
+                    '$0 cluster config inspect --name myapp --component caddy',
+                    'Show Caddy configuration summary for all nodes'
+                  )
+                  .example(
+                    '$0 cluster config inspect --name myapp --node misty-owl --full',
+                    'Show full configuration for specific node'
+                  )
+                  .example(
+                    '$0 cluster config inspect --name myapp --component caddy --node misty-owl --full',
+                    'Show full Caddy configuration for specific node'
+                  ),
+              handler: createCommandHandler(ClusterConfigInspectCommand),
+            })
+            .demandCommand(1, 'Please specify a config action')
             .help(),
         handler: () => {
           // This will never be called due to demandCommand(1)

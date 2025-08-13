@@ -5,7 +5,7 @@ import type { ClusterNode } from '../../shared/types/index.js';
 import * as readline from 'readline';
 
 export interface ClusterNodeRemoveOptions {
-  cluster: string;
+  name: string;
   node: string;
   confirm?: boolean;
 }
@@ -16,10 +16,10 @@ export interface ClusterNodeRemoveOptions {
  */
 export class ClusterNodeRemoveCommand extends BaseCommand<ClusterNodeRemoveOptions> {
   protected async run(): Promise<void> {
-    const { cluster: clusterName, node: nodeId, confirm = false } = this.argv;
+    const { name: clusterName, node: nodeId, confirm = false } = this.argv;
 
     // Validate inputs
-    ValidationUtils.validateRequiredArgs(this.argv, ['cluster', 'node']);
+    ValidationUtils.validateRequiredArgs(this.argv, ['name', 'node']);
 
     this.logger.info(`Removing node ${nodeId} from cluster ${clusterName}...`);
 
@@ -100,7 +100,7 @@ export class ClusterNodeRemoveCommand extends BaseCommand<ClusterNodeRemoveOptio
     this.logger.info(`   Remaining nodes: ${allNodes.length - 1}`);
     
     this.logger.info('\nNext steps:');
-    this.logger.info(`   1. Check cluster status: dynia cluster node list ${clusterName}`);
+    this.logger.info(`   1. Check cluster status: dynia cluster node list --name ${clusterName}`);
     this.logger.info(`   2. Verify connectivity: curl https://your-domain.com`);
     this.logger.info(`   3. Consider adding more nodes: dynia cluster node add --name ${clusterName}`);
   }

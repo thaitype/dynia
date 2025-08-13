@@ -3,7 +3,7 @@ import { ValidationUtils } from '../../shared/utils/validation.js';
 import { NodePreparationService } from '../../shared/services/node-preparation-service.js';
 
 export interface ClusterNodePrepareOptions {
-  cluster: string;
+  name: string;
   node: string;
   force?: boolean;
 }
@@ -14,10 +14,10 @@ export interface ClusterNodePrepareOptions {
  */
 export class ClusterNodePrepareCommand extends BaseCommand<ClusterNodePrepareOptions> {
   protected async run(): Promise<void> {
-    const { cluster: clusterName, node: nodeId, force = false } = this.argv;
+    const { name: clusterName, node: nodeId, force = false } = this.argv;
 
     // Validate inputs
-    ValidationUtils.validateRequiredArgs(this.argv, ['cluster', 'node']);
+    ValidationUtils.validateRequiredArgs(this.argv, ['name', 'node']);
 
     this.logger.info(`Preparing node ${nodeId} in cluster ${clusterName}...`);
 
@@ -109,7 +109,7 @@ export class ClusterNodePrepareCommand extends BaseCommand<ClusterNodePrepareOpt
     this.logger.info('\\nNext steps:');
     this.logger.info(`   1. Test cluster: dynia cluster repair-ha ${clusterName} --check-only`);
     this.logger.info(`   2. Deploy service: dynia cluster deployment create --name ${clusterName} --placeholder`);
-    this.logger.info(`   3. Check status: dynia cluster node list ${clusterName}`);
+    this.logger.info(`   3. Check status: dynia cluster node list --name ${clusterName}`);
   }
 
   /**

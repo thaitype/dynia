@@ -7,7 +7,7 @@ import { NodePreparationService } from '../../shared/services/node-preparation-s
 import type { ClusterNode } from '../../shared/types/index.js';
 
 export interface ClusterNodeAddOptions {
-  cluster: string;
+  name: string;
   count?: number;
 }
 
@@ -17,10 +17,10 @@ export interface ClusterNodeAddOptions {
  */
 export class ClusterNodeAddCommand extends BaseCommand<ClusterNodeAddOptions> {
   protected async run(): Promise<void> {
-    const { cluster, count = 1 } = this.argv;
+    const { name: cluster, count = 1 } = this.argv;
 
     // Validate inputs
-    ValidationUtils.validateRequiredArgs(this.argv, ['cluster']);
+    ValidationUtils.validateRequiredArgs(this.argv, ['name']);
     
     if (count < 1 || count > 10) {
       throw new Error('Count must be between 1 and 10 nodes');
@@ -88,9 +88,9 @@ export class ClusterNodeAddCommand extends BaseCommand<ClusterNodeAddOptions> {
       }
       
       this.logger.info('\nNext steps:');
-      this.logger.info(`   1. Check cluster status: dynia cluster node list --cluster ${cluster}`);
+      this.logger.info(`   1. Check cluster status: dynia cluster node list --name ${cluster}`);
       this.logger.info(`   2. Deploy services: dynia cluster deployment create --name ${cluster} --placeholder`);
-      this.logger.info(`   3. Test failover: dynia cluster node activate --cluster ${cluster} --node <node-id>`);
+      this.logger.info(`   3. Test failover: dynia cluster node activate --name ${cluster} --node <node-id>`);
     }
   }
 

@@ -28,7 +28,7 @@ export class ClusterReservedIpListCommand extends BaseCommand<ClusterReservedIpL
       
       if (allReservedIps.length === 0) {
         this.logger.info('No Reserved IPs found in your DigitalOcean account.');
-        this.logger.info('You can create one with: dynia cluster reserved-ip assign --cluster <name> --node <node-id>');
+        this.logger.info('You can create one with: dynia cluster reserved-ip assign --name <name> --node <node-id>');
         return;
       }
 
@@ -106,7 +106,7 @@ export class ClusterReservedIpListCommand extends BaseCommand<ClusterReservedIpL
       // Show available actions
       console.log('\nUseful commands:');
       if (unassignedCount > 0) {
-        console.log('  dynia cluster reserved-ip assign --cluster <name> --node <node-id>  # Assign to cluster');
+        console.log('  dynia cluster reserved-ip assign --name <name> --node <node-id>  # Assign to cluster');
       }
       console.log('  dynia cluster list  # Show clusters and their Reserved IP assignments');
       

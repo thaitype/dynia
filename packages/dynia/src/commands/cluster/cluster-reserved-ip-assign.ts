@@ -5,7 +5,7 @@ import { ReservedIpService } from '../../shared/services/reserved-ip-service.js'
 import type { ClusterNode } from '../../shared/types/index.js';
 
 export interface ClusterReservedIpAssignOptions {
-  cluster: string;
+  name: string;
   node: string;
 }
 
@@ -15,10 +15,10 @@ export interface ClusterReservedIpAssignOptions {
  */
 export class ClusterReservedIpAssignCommand extends BaseCommand<ClusterReservedIpAssignOptions> {
   protected async run(): Promise<void> {
-    const { cluster: clusterName, node: nodeId } = this.argv;
+    const { name: clusterName, node: nodeId } = this.argv;
 
     // Validate inputs
-    ValidationUtils.validateRequiredArgs(this.argv, ['cluster', 'node']);
+    ValidationUtils.validateRequiredArgs(this.argv, ['name', 'node']);
 
     this.logger.info(`Assigning Reserved IP to node ${nodeId} in cluster ${clusterName}...`);
 
