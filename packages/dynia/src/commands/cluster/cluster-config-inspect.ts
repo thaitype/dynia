@@ -3,6 +3,7 @@ import { ValidationUtils } from '../../shared/utils/validation.js';
 import { SSHExecutor } from '../../shared/utils/ssh.js';
 import type { ClusterNode } from '../../shared/types/index.js';
 import { Table } from 'console-table-printer';
+import pAll from 'p-all';
 
 export interface ClusterConfigInspectOptions {
   component?: string;
@@ -146,36 +147,42 @@ export class ClusterConfigInspectCommand extends BaseCommand<ClusterConfigInspec
     };
 
     try {
-      // Check container status
-      const containerStatus = await ssh.executeCommand('docker ps --filter "name=dynia-caddy" --format "{{.Status}}"');
+      // Create parallel SSH tasks
+      const sshTasks = [
+        () => ssh.executeCommand('docker ps --filter "name=dynia-caddy" --format "{{.Status}}"'),
+        () => ssh.executeCommand('test -f /opt/dynia/caddy/Caddyfile && echo "exists" || echo "missing"'),
+        () => ssh.executeCommand('grep -c "^[a-zA-Z0-9.-]\\+\\.[a-zA-Z]\\+.*{" /opt/dynia/caddy/Caddyfile || echo "0"'),
+        () => ssh.executeCommand('curl -f --connect-timeout 2 --max-time 5 http://localhost:2019/config/ >/dev/null 2>&1')
+          .then(() => 'accessible')
+          .catch(() => 'not-accessible'),
+        () => ssh.executeCommand('docker inspect dynia-caddy --format "{{.State.Health.Status}}" 2>/dev/null || echo "no-healthcheck"')
+      ];
+
+      // Add full config task if needed
+      if (full) {
+        sshTasks.push(() => ssh.executeCommand('cat /opt/dynia/caddy/Caddyfile'));
+      }
+
+      // Execute all SSH commands in parallel
+      const results = await pAll(sshTasks, { concurrency: 7 });
+
+      // Process results
+      const [containerStatus, caddyfileExists, domainCount, adminApiResult, healthStatus, fullConfigResult] = results;
+      
       config.status = containerStatus.trim() ? 'Running' : 'Stopped';
-
-      // Get Caddyfile path and basic info
-      const caddyfileExists = await ssh.executeCommand('test -f /opt/dynia/caddy/Caddyfile && echo "exists" || echo "missing"');
       config.key_config.caddyfile = caddyfileExists.trim();
-
+      
       if (caddyfileExists.trim() === 'exists') {
-        // Count domains in Caddyfile
-        const domainCount = await ssh.executeCommand('grep -c "^[a-zA-Z0-9.-]\\+\\.[a-zA-Z]\\+.*{" /opt/dynia/caddy/Caddyfile || echo "0"');
         config.key_config.domains = domainCount.trim();
-
-        // Check admin API
-        try {
-          await ssh.executeCommand('curl -f --connect-timeout 2 --max-time 5 http://localhost:2019/config/ >/dev/null 2>&1');
-          config.key_config.admin_api = 'Accessible';
-        } catch {
-          config.key_config.admin_api = 'Not accessible';
-        }
-
-        if (full) {
-          // Get full Caddyfile content
-          config.full_config = await ssh.executeCommand('cat /opt/dynia/caddy/Caddyfile');
+        config.key_config.admin_api = adminApiResult === 'accessible' ? 'Accessible' : 'Not accessible';
+        
+        if (full && fullConfigResult) {
+          config.full_config = fullConfigResult;
         }
       }
 
-      // Check container health
+      // Set health status if container is running
       if (config.status === 'Running') {
-        const healthStatus = await ssh.executeCommand('docker inspect dynia-caddy --format "{{.State.Health.Status}}" 2>/dev/null || echo "no-healthcheck"');
         config.key_config.health = healthStatus.trim();
       }
 
@@ -199,29 +206,33 @@ export class ClusterConfigInspectCommand extends BaseCommand<ClusterConfigInspec
     };
 
     try {
-      // Check Docker daemon status
-      const dockerStatus = await ssh.executeCommand('systemctl is-active docker || echo "inactive"');
+      // Create parallel SSH tasks
+      const sshTasks = [
+        () => ssh.executeCommand('systemctl is-active docker || echo "inactive"'),
+        () => ssh.executeCommand('docker ps -q | wc -l'),
+        () => ssh.executeCommand('docker network ls -q | wc -l'),
+        () => ssh.executeCommand('docker network ls --filter "name=edge" --format "{{.Name}}" | head -1 || echo "missing"'),
+        () => ssh.executeCommand('docker --version | cut -d" " -f3 | cut -d"," -f1')
+      ];
+
+      // Add full config task if needed
+      if (full) {
+        sshTasks.push(() => ssh.executeCommand('docker ps --format "table {{.Names}}\\t{{.Image}}\\t{{.Status}}\\t{{.Ports}}"'));
+      }
+
+      // Execute all SSH commands in parallel
+      const results = await pAll(sshTasks, { concurrency: 7 });
+
+      // Process results
+      const [dockerStatus, containerCount, networkCount, edgeNetwork, dockerVersion, containerDetails] = results;
+      
       config.status = dockerStatus.trim() === 'active' ? 'Running' : 'Stopped';
-
-      // Get container count
-      const containerCount = await ssh.executeCommand('docker ps -q | wc -l');
       config.key_config.running_containers = containerCount.trim();
-
-      // Get network count
-      const networkCount = await ssh.executeCommand('docker network ls -q | wc -l');
       config.key_config.networks = networkCount.trim();
-
-      // Check edge network
-      const edgeNetwork = await ssh.executeCommand('docker network ls --filter "name=edge" --format "{{.Name}}" | head -1 || echo "missing"');
       config.key_config.edge_network = edgeNetwork.trim();
-
-      // Get Docker version
-      const dockerVersion = await ssh.executeCommand('docker --version | cut -d" " -f3 | cut -d"," -f1');
       config.key_config.version = dockerVersion.trim();
 
-      if (full) {
-        // Get detailed container information
-        const containerDetails = await ssh.executeCommand('docker ps --format "table {{.Names}}\\t{{.Image}}\\t{{.Status}}\\t{{.Ports}}"');
+      if (full && containerDetails) {
         config.full_config = containerDetails;
       }
 
@@ -245,7 +256,7 @@ export class ClusterConfigInspectCommand extends BaseCommand<ClusterConfigInspec
     };
 
     try {
-      // Check if keepalived is installed/configured
+      // Check if keepalived is installed/configured first
       const keepalivedExists = await ssh.executeCommand('which keepalived >/dev/null 2>&1 && echo "installed" || echo "not-installed"');
       
       if (keepalivedExists.trim() === 'not-installed') {
@@ -254,29 +265,51 @@ export class ClusterConfigInspectCommand extends BaseCommand<ClusterConfigInspec
         return config;
       }
 
-      // Check service status
-      const serviceStatus = await ssh.executeCommand('systemctl is-active keepalived 2>/dev/null || echo "inactive"');
-      config.status = serviceStatus.trim() === 'active' ? 'Running' : 'Stopped';
+      // Create parallel SSH tasks for installed keepalived
+      const sshTasks = [
+        () => ssh.executeCommand('systemctl is-active keepalived 2>/dev/null || echo "inactive"'),
+        () => ssh.executeCommand('test -f /etc/keepalived/keepalived.conf && echo "exists" || echo "missing"')
+      ];
 
-      // Get configuration file info
-      const configExists = await ssh.executeCommand('test -f /etc/keepalived/keepalived.conf && echo "exists" || echo "missing"');
+      // Execute initial tasks in parallel
+      const [serviceStatus, configExists] = await pAll(sshTasks, { concurrency: 7 });
+      
+      config.status = serviceStatus.trim() === 'active' ? 'Running' : 'Stopped';
       config.key_config.config_file = configExists.trim();
 
-      if (configExists.trim() === 'exists') {
-        // Get VRRP instance info
-        const vrrpInstance = await ssh.executeCommand('grep -E "^\\s*state|^\\s*priority" /etc/keepalived/keepalived.conf | head -2 | tr "\\n" " " || echo "unknown"');
-        config.key_config.vrrp_config = vrrpInstance.trim();
+      // Additional tasks based on config existence and service status
+      const additionalTasks = [];
 
+      if (configExists.trim() === 'exists') {
+        additionalTasks.push(() => ssh.executeCommand('grep -E "^\\s*state|^\\s*priority" /etc/keepalived/keepalived.conf | head -2 | tr "\\n" " " || echo "unknown"'));
+        
         if (full) {
-          // Get full keepalived configuration
-          config.full_config = await ssh.executeCommand('cat /etc/keepalived/keepalived.conf');
+          additionalTasks.push(() => ssh.executeCommand('cat /etc/keepalived/keepalived.conf'));
         }
       }
 
-      // Check for VRRP traffic (indicates keepalived is working)
       if (config.status === 'Running') {
-        const vrrpTraffic = await ssh.executeCommand('ip -br addr show | grep -q "scope global secondary" && echo "has-vip" || echo "no-vip"');
-        config.key_config.virtual_ip = vrrpTraffic.trim();
+        additionalTasks.push(() => ssh.executeCommand('ip -br addr show | grep -q "scope global secondary" && echo "has-vip" || echo "no-vip"'));
+      }
+
+      // Execute additional tasks in parallel if any
+      if (additionalTasks.length > 0) {
+        const additionalResults = await pAll(additionalTasks, { concurrency: 7 });
+        let resultIndex = 0;
+
+        if (configExists.trim() === 'exists') {
+          config.key_config.vrrp_config = additionalResults[resultIndex].trim();
+          resultIndex++;
+          
+          if (full) {
+            config.full_config = additionalResults[resultIndex];
+            resultIndex++;
+          }
+        }
+
+        if (config.status === 'Running') {
+          config.key_config.virtual_ip = additionalResults[resultIndex].trim();
+        }
       }
 
     } catch (error) {
@@ -299,29 +332,33 @@ export class ClusterConfigInspectCommand extends BaseCommand<ClusterConfigInspec
     };
 
     try {
-      // Get system uptime
-      const uptime = await ssh.executeCommand('uptime -p');
+      // Create parallel SSH tasks
+      const sshTasks = [
+        () => ssh.executeCommand('uptime -p'),
+        () => ssh.executeCommand('free -h | grep Mem | awk \'{print $3 "/" $2}\''),
+        () => ssh.executeCommand('df -h /opt/dynia | tail -1 | awk \'{print $3 "/" $2 " (" $5 ")"}\''),
+        () => ssh.executeCommand('cat /proc/loadavg | cut -d" " -f1-3'),
+        () => ssh.executeCommand('find /opt/dynia -maxdepth 2 -type d | wc -l')
+      ];
+
+      // Add full config task if needed
+      if (full) {
+        sshTasks.push(() => ssh.executeCommand('uname -a; echo "---"; df -h; echo "---"; free -h; echo "---"; ps aux --sort=-%mem | head -10'));
+      }
+
+      // Execute all SSH commands in parallel
+      const results = await pAll(sshTasks, { concurrency: 7 });
+
+      // Process results
+      const [uptime, memUsage, diskUsage, loadAvg, dyniaStructure, systemInfo] = results;
+      
       config.key_config.uptime = uptime.trim();
-
-      // Get memory usage
-      const memUsage = await ssh.executeCommand('free -h | grep Mem | awk \'{print $3 "/" $2}\'');
       config.key_config.memory = memUsage.trim();
-
-      // Get disk usage for /opt/dynia
-      const diskUsage = await ssh.executeCommand('df -h /opt/dynia | tail -1 | awk \'{print $3 "/" $2 " (" $5 ")"}\'');
       config.key_config.disk_usage = diskUsage.trim();
-
-      // Get load average
-      const loadAvg = await ssh.executeCommand('cat /proc/loadavg | cut -d" " -f1-3');
       config.key_config.load_average = loadAvg.trim();
-
-      // Check dynia directory structure
-      const dyniaStructure = await ssh.executeCommand('find /opt/dynia -maxdepth 2 -type d | wc -l');
       config.key_config.dynia_dirs = dyniaStructure.trim();
 
-      if (full) {
-        // Get detailed system information
-        const systemInfo = await ssh.executeCommand('uname -a; echo "---"; df -h; echo "---"; free -h; echo "---"; ps aux --sort=-%mem | head -10');
+      if (full && systemInfo) {
         config.full_config = systemInfo;
       }
 
