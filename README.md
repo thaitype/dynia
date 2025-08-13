@@ -214,13 +214,13 @@ pnpm dynia cluster reserved-ip assign --cluster myapp --node brave-panda
 #### Deploy Services
 ```bash
 # Deploy placeholder service for testing
-pnpm dynia cluster deploy --name myapp --placeholder
+pnpm dynia cluster deployment create --name myapp --placeholder
 
 # Deploy custom application with domain
-pnpm dynia cluster deploy --name myapp --compose ./app.yml --domain myapp-api.example.com
+pnpm dynia cluster deployment create --name myapp --compose ./app.yml --domain myapp-api.example.com
 
 # Deploy with custom health check path
-pnpm dynia cluster deploy --name myapp --compose ./app.yml --domain myapp-web.example.com --health-path /health
+pnpm dynia cluster deployment create --name myapp --compose ./app.yml --domain myapp-web.example.com --health-path /health
 ```
 
 ## 🏗️ Legacy Single Node Management
@@ -292,14 +292,14 @@ pnpm dynia cluster node list --cluster myapp
 pnpm dynia cluster node activate --cluster myapp --node misty-owl
 
 # Deploy a test service across the cluster
-pnpm dynia cluster deploy --name myapp --placeholder
+pnpm dynia cluster deployment create --name myapp --placeholder
 ```
 
 ### 3. Service Deployment
 
 ```bash
 # Deploy your application to the cluster
-pnpm dynia cluster deploy --name myapp --compose ./docker-compose.yml --domain myapp-api.example.com
+pnpm dynia cluster deployment create --name myapp --compose ./docker-compose.yml --domain myapp-api.example.com
 
 # The service will be accessible at: https://myapp-api.example.com
 # Traffic will be routed to the active node automatically
@@ -479,7 +479,7 @@ DYNIA_DO_SIZE=s-2vcpu-2gb
    # Verify container networking and ports
    
    # Check Caddy configuration
-   pnpm dynia cluster deploy --name myapp --placeholder
+   pnpm dynia cluster deployment create --name myapp --placeholder
    
    # View Caddy logs on the node
    ssh user@node-ip "docker logs dynia-caddy"

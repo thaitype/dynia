@@ -89,7 +89,7 @@ export class ClusterNodeAddCommand extends BaseCommand<ClusterNodeAddOptions> {
       
       this.logger.info('\nNext steps:');
       this.logger.info(`   1. Check cluster status: dynia cluster node list --cluster ${cluster}`);
-      this.logger.info(`   2. Deploy services: dynia cluster deploy --name ${cluster} --placeholder`);
+      this.logger.info(`   2. Deploy services: dynia cluster deployment create --name ${cluster} --placeholder`);
       this.logger.info(`   3. Test failover: dynia cluster node activate --cluster ${cluster} --node <node-id>`);
     }
   }

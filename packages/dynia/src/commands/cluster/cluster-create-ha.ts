@@ -114,7 +114,7 @@ export class ClusterCreateHaCommand extends BaseCommand<ClusterCreateHaOptions> 
     this.logger.info('');
     this.logger.info('Next steps:');
     this.logger.info(`   1. Configure DNS: Point your domain records to ${reservedIpInfo.ip}`);
-    this.logger.info(`   2. Deploy services: dynia cluster deploy --name ${name} --placeholder`);
+    this.logger.info(`   2. Deploy services: dynia cluster deployment create --name ${name} --placeholder`);
     this.logger.info(`   3. Add more nodes: dynia cluster node add --name ${name}`);
   }
 

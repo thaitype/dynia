@@ -11,7 +11,7 @@ import { ClusterNodeRemoveCommand } from './cluster-node-remove.js';
 import { ClusterNodeActivateCommand } from './cluster-node-activate.js';
 import { ClusterReservedIpAssignCommand } from './cluster-reserved-ip-assign.js';
 import { ClusterReservedIpListCommand } from './cluster-reserved-ip-list.js';
-import { ClusterDeployCommand } from './cluster-deploy.js';
+import { ClusterDeploymentCreateCommand } from './cluster-deployment-create.js';
 import { ClusterRepairHaCommand } from './cluster-repair-ha.js';
 import { ClusterNodePrepareCommand } from './cluster-node-prepare.js';
 import { ClusterPrepareCommand } from './cluster-prepare.js';
@@ -205,50 +205,61 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
         },
       })
       .command({
-        command: 'deploy',
-        describe: 'Deploy services to cluster with host-based routing',
+        command: 'deployment <action>',
+        describe: 'Manage cluster service deployments',
         builder: yargs =>
           yargs
-            .option('name', {
-              type: 'string',
-              describe: 'Cluster name',
-              demandOption: true,
+            .command({
+              command: 'create',
+              describe: 'Deploy services to cluster with host-based routing',
+              builder: yargs =>
+                yargs
+                  .option('name', {
+                    type: 'string',
+                    describe: 'Cluster name',
+                    demandOption: true,
+                  })
+                  .option('compose', {
+                    type: 'string',
+                    describe: 'Path to docker-compose.yml file',
+                  })
+                  .option('domain', {
+                    type: 'string',
+                    describe: 'FQDN to bind service to (e.g., api.example.com)',
+                  })
+                  .option('placeholder', {
+                    type: 'boolean',
+                    describe: 'Deploy placeholder service for testing',
+                    default: false,
+                  })
+                  .option('health-path', {
+                    type: 'string',
+                    describe: 'Health check path',
+                    default: '/healthz',
+                  })
+                  .option('proxied', {
+                    type: 'boolean',
+                    describe: 'Enable Cloudflare proxy',
+                    default: true,
+                  })
+                  .check(argv => {
+                    if (!argv.placeholder && (!argv.compose || !argv.domain)) {
+                      throw new Error('Either --placeholder or both --compose and --domain are required');
+                    }
+                    return true;
+                  })
+                  .example(
+                    '$0 cluster deployment create --name myapp --compose ./app.yml --domain myapp-api.example.com',
+                    'Deploy app with custom domain'
+                  )
+                  .example('$0 cluster deployment create --name myapp --placeholder', 'Deploy test placeholder'),
+              handler: createCommandHandler(ClusterDeploymentCreateCommand),
             })
-            .option('compose', {
-              type: 'string',
-              describe: 'Path to docker-compose.yml file',
-            })
-            .option('domain', {
-              type: 'string',
-              describe: 'FQDN to bind service to (e.g., api.example.com)',
-            })
-            .option('placeholder', {
-              type: 'boolean',
-              describe: 'Deploy placeholder service for testing',
-              default: false,
-            })
-            .option('health-path', {
-              type: 'string',
-              describe: 'Health check path',
-              default: '/healthz',
-            })
-            .option('proxied', {
-              type: 'boolean',
-              describe: 'Enable Cloudflare proxy',
-              default: true,
-            })
-            .check(argv => {
-              if (!argv.placeholder && (!argv.compose || !argv.domain)) {
-                throw new Error('Either --placeholder or both --compose and --domain are required');
-              }
-              return true;
-            })
-            .example(
-              '$0 cluster deploy --name myapp --compose ./app.yml --domain api.example.com',
-              'Deploy app with custom domain'
-            )
-            .example('$0 cluster deploy --name myapp --placeholder', 'Deploy test placeholder'),
-        handler: createCommandHandler(ClusterDeployCommand),
+            .demandCommand(1, 'Please specify a deployment action')
+            .help(),
+        handler: () => {
+          // This will never be called due to demandCommand(1)
+        },
       })
       .command({
         command: 'prepare <name>',

@@ -108,7 +108,7 @@ export class ClusterNodePrepareCommand extends BaseCommand<ClusterNodePrepareOpt
     
     this.logger.info('\\nNext steps:');
     this.logger.info(`   1. Test cluster: dynia cluster repair-ha ${clusterName} --check-only`);
-    this.logger.info(`   2. Deploy service: dynia cluster deploy --name ${clusterName} --placeholder`);
+    this.logger.info(`   2. Deploy service: dynia cluster deployment create --name ${clusterName} --placeholder`);
     this.logger.info(`   3. Check status: dynia cluster node list ${clusterName}`);
   }
 

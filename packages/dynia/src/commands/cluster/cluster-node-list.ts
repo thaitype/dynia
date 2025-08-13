@@ -65,7 +65,7 @@ export class ClusterNodeListCommand extends BaseCommand<ClusterNodeListOptions> 
     console.log('\nUseful commands:');
     console.log(`  dynia cluster node add --name ${clusterName}             # Add more nodes`);
     console.log(`  dynia cluster node activate ${clusterName} <node-id>     # Change active node`);
-    console.log(`  dynia cluster deploy --name ${clusterName} --placeholder # Deploy test service`);
+    console.log(`  dynia cluster deployment create --name ${clusterName} --placeholder # Deploy test service`);
     console.log(`  dynia cluster repair-ha ${clusterName}                   # Repair cluster issues`);
   }
 

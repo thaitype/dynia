@@ -80,7 +80,7 @@ export class ClusterReservedIpAssignCommand extends BaseCommand<ClusterReservedI
     this.logger.info('\\nNext steps:');
     this.logger.info(`   1. Check cluster status: dynia cluster node list ${clusterName}`);
     this.logger.info(`   2. Test connectivity: curl https://your-domain-pointing-to-reserved-ip.com`);
-    this.logger.info(`   3. Deploy services: dynia cluster deploy --name ${clusterName} --placeholder`);
+    this.logger.info(`   3. Deploy services: dynia cluster deployment create --name ${clusterName} --placeholder`);
   }
 
 

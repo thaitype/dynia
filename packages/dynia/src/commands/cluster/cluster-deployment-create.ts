@@ -6,7 +6,7 @@ import { createDigitalOceanProvider } from '../../core/providers/digitalocean-pr
 import type { Route } from '../../shared/types/index.js';
 import { Helpers } from '../../shared/utils/helpers.js';
 
-export interface ClusterDeployOptions {
+export interface ClusterDeploymentCreateOptions {
   name: string;
   compose?: string;
   domain?: string;
@@ -19,7 +19,7 @@ export interface ClusterDeployOptions {
  * Command to deploy services to a cluster with host-based routing
  * Supports both custom compose files and placeholder deployments for testing
  */
-export class ClusterDeployCommand extends BaseCommand<ClusterDeployOptions> {
+export class ClusterDeploymentCreateCommand extends BaseCommand<ClusterDeploymentCreateOptions> {
   protected async run(): Promise<void> {
     const { 
       name, 
