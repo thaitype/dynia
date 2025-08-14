@@ -1,0 +1,33 @@
+{
+  "name": "@examples/basic-v2",
+  "version": "0.0.1",
+  "type": "module",
+  "private": true,
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/dts/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "types": "./dist/dts/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "default": "./dist/cjs/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "package.json",
+    "README.md"
+  ],
+  "scripts": {
+    "dynia": "dynia"
+  },
+  "devDependencies": {
+    "dynia-v2": "workspace:*",
+    "@dynia/config-eslint": "workspace:*",
+    "@dynia/config-typescript": "workspace:*",
+    "@dynia/config-vitest": "workspace:*",
+    "@dynia/mono": "workspace:*"
+  }
+}
