@@ -44,6 +44,13 @@ Dynia is a **lightweight, CLI-driven orchestrator** for small clusters that prov
 - keepalived failover mechanism
 - Security configuration
 
+**[Node Filesystem Reference](node-filesystem.md)** - **File System Layout**
+- Complete file and directory reference
+- Infrastructure vs application layer files
+- Configuration templates and examples
+- File ownership, permissions, and lifecycle
+- Troubleshooting file-related issues
+
 ### 🛠️ Operations
 
 **[Troubleshooting Guide](troubleshooting.md)** - **Problem Resolution**
@@ -97,9 +104,10 @@ graph LR
 **Recommended Path:**
 1. 🏗️ [Architecture & Design](architecture.md) - Understand the system
 2. 🖥️ [Infrastructure Deep Dive](infrastructure.md) - Learn server setup
-3. 🔧 Customize configurations for your needs
-4. 📈 Plan scaling strategies
-5. 🔍 [Advanced debugging](troubleshooting.md#advanced-debugging) techniques
+3. 🗂️ [Node Filesystem Reference](node-filesystem.md) - Understand file layouts
+4. 🔧 Customize configurations for your needs
+5. 📈 Plan scaling strategies
+6. 🔍 [Advanced debugging](troubleshooting.md#advanced-debugging) techniques
 
 ### For Site Reliability Engineers
 

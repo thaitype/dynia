@@ -38,40 +38,25 @@ sequenceDiagram
 
 ### Directory Structure on Nodes
 
+For detailed information about all files and directories on cluster nodes, including the infrastructure and application layers, see the **[Node Filesystem Reference](node-filesystem.md)**.
+
+**Quick overview**:
+
 ```
-/root/                          # Root user home
-├── .ssh/
-│   └── authorized_keys         # SSH public key for CLI access
-├── docker-compose.yml          # Main services definition
-└── .dynia/                     # Dynia configuration
-    ├── node.json              # Node metadata
-    └── deployment.json        # Service deployment info
+/opt/dynia/                     # Main Dynia directory
+├── caddy/                      # Caddy reverse proxy configs
+├── haproxy/                    # HAProxy load balancer configs
+└── compose/                    # Application service deployments
+    └── [service-domain]/       # Each deployed service
 
-/etc/haproxy/                   # HAProxy configuration
-├── haproxy.cfg                # Main HAProxy config  
-├── certs/                     # SSL certificates
-│   ├── domain.com.pem         # Combined cert + key
-│   ├── domain.com.crt         # Certificate only
-│   └── domain.com.key         # Private key
-└── backup/                    # Config backups
-
-/etc/caddy/                    # Caddy configuration
-└── Caddyfile                  # HTTP proxy config
-
-/etc/keepalived/               # keepalived configuration
-├── keepalived.conf           # Failover configuration
-└── scripts/                  # Health check scripts
-    └── check_haproxy.sh     # HAProxy health check
+/etc/keepalived/               # keepalived HA configuration
+├── keepalived.conf           # VRRP failover settings
+└── scripts/                  # Health monitoring scripts
 
 /var/log/                     # System logs
-├── haproxy.log               # HAProxy access/error logs
-├── caddy/                    # Caddy logs
-│   └── access.log           # HTTP access logs
-└── keepalived.log           # Failover logs
-
-/docker/                      # Docker data
-├── networks/                 # Custom networks
-└── volumes/                  # Persistent data
+├── haproxy.log               # Load balancer logs
+├── caddy/                    # Reverse proxy logs
+└── keepalived.log           # Failover event logs
 ```
 
 ## 🐳 Docker Infrastructure
@@ -92,9 +77,9 @@ graph TB
         end
         
         subgraph "Application Services"  
-            Placeholder[dynia-placeholder<br/>Test service<br/>Port: 8081]
-            App1[your-app-1<br/>Your service<br/>Port: 8082]
-            App2[your-app-2<br/>Another service<br/>Port: 8083]
+            App1[your-app-1<br/>Your service<br/>Port: 8081]
+            App2[your-app-2<br/>Another service<br/>Port: 8082]
+            App3[your-app-3<br/>Third service<br/>Port: 8083]
         end
         
         subgraph "System Services"
@@ -104,14 +89,14 @@ graph TB
     
     EdgeNet --> HAProxy
     EdgeNet --> Caddy
-    EdgeNet --> Placeholder
     EdgeNet --> App1
     EdgeNet --> App2
+    EdgeNet --> App3
     
     HAProxy --> Caddy
-    Caddy --> Placeholder
     Caddy --> App1
     Caddy --> App2
+    Caddy --> App3
     
     keepalived -.->|Monitors| HAProxy
     
@@ -174,14 +159,14 @@ services:
       retries: 3
       start_period: 10s
 
-  # Placeholder Service - For testing
-  dynia-placeholder:
+  # Example Application Service - deployed via 'dynia cluster deployment create'
+  your-app-1:
     image: nginx:alpine
-    container_name: dynia-placeholder
+    container_name: your-app-1
     ports:
       - "8081:80"
     volumes:
-      - ./placeholder:/usr/share/nginx/html:ro
+      - ./app-data:/usr/share/nginx/html:ro
     networks:
       - edge  
     restart: unless-stopped
@@ -218,15 +203,15 @@ services:
           memory: 32M
           cpus: '0.1'
     
-  dynia-placeholder:
+  your-app-1:
     deploy:
       resources:
         limits:
-          memory: 64M
-          cpus: '0.2'
+          memory: 256M
+          cpus: '0.5'
         reservations:
-          memory: 32M
-          cpus: '0.1'
+          memory: 128M
+          cpus: '0.25'
 ```
 
 ## ⚖️ HAProxy Configuration
@@ -432,9 +417,9 @@ echo "Certificate updated for $DOMAIN"
         }
     }
     
-    # Default handler - placeholder service
+    # Default handler - your application service
     handle {
-        reverse_proxy http://dynia-placeholder:80 {
+        reverse_proxy http://your-app-1:80 {
             header_up Host {upstream_hostport}
             header_up X-Forwarded-Proto {scheme}
             header_up X-Forwarded-For {remote}
@@ -455,7 +440,7 @@ echo "Certificate updated for $DOMAIN"
 :2019 {
     respond /health "OK" 200
     respond /ready "Ready" 200  
-    respond /metrics "# Caddy metrics placeholder" 200
+    respond /metrics "# Caddy metrics endpoint" 200
 }
 ```
 
