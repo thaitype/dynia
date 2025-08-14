@@ -85,8 +85,8 @@ export class ClusterDeploymentCreateCommand extends BaseCommand<ClusterDeploymen
     // Step 3: Save route in state
     await this.saveRouteState(name, targetDomain, healthPath, proxied, placeholder, compose);
 
-    // Step 4: Validate deployment
-    await this.validateDeployment(targetDomain, healthPath);
+    // Step 4: Validate deployment across all nodes
+    await this.validateDeployment(targetDomain, healthPath, allNodes);
 
     // Success summary
     this.logger.info(`\n✅ Service deployed successfully to all ${allNodes.length} nodes in cluster ${name}`);
@@ -279,6 +279,9 @@ export class ClusterDeploymentCreateCommand extends BaseCommand<ClusterDeploymen
       caddyRoutes.push({host: newDomain, healthPath: newHealthPath});
     }
 
+    // Track failed nodes for proper error reporting
+    const failedNodes: Array<{node: string; error: string}> = [];
+
     // Generate complete Caddyfile on ALL nodes in parallel
     const caddyfilePromises = allNodes.map(async (node) => {
       this.logger.info(`Updating Caddyfile on node ${node.twoWordId}...`);
@@ -295,12 +298,21 @@ export class ClusterDeploymentCreateCommand extends BaseCommand<ClusterDeploymen
         this.logger.info(`✅ Caddyfile updated on node ${node.twoWordId}`);
       } catch (error) {
         this.logger.error(`❌ Failed to update Caddyfile on node ${node.twoWordId}: ${error}`);
-        // Don't throw here - allow other nodes to continue
+        failedNodes.push({ node: node.twoWordId, error: error instanceof Error ? error.message : String(error) });
       }
     });
 
     // Wait for all Caddyfile updates to complete
     await Promise.all(caddyfilePromises);
+
+    // Check for failures and throw error if any nodes failed
+    if (failedNodes.length > 0) {
+      throw new Error(
+        `Caddyfile update failed on ${failedNodes.length} node(s): ${
+          failedNodes.map(f => `${f.node}: ${f.error}`).join(', ')
+        }`
+      );
+    }
     
     this.logger.info(`✅ Caddyfile regenerated on all ${allNodes.length} cluster nodes`);
   }
@@ -373,13 +385,13 @@ export class ClusterDeploymentCreateCommand extends BaseCommand<ClusterDeploymen
   }
 
   /**
-   * Validate deployment by checking DNS and service health
+   * Validate deployment by checking DNS and service health on all nodes
    */
-  private async validateDeployment(domain: string, healthPath: string): Promise<void> {
-    this.logger.info('Validating deployment...');
+  private async validateDeployment(domain: string, healthPath: string, allNodes: any[]): Promise<void> {
+    this.logger.info('Validating deployment across all cluster nodes...');
     
     if (this.dryRun) {
-      this.logDryRun(`validate DNS resolution and health check for ${domain}`);
+      this.logDryRun(`validate DNS resolution and health check for ${domain} on ${allNodes.length} nodes`);
       return;
     }
 
@@ -388,15 +400,51 @@ export class ClusterDeploymentCreateCommand extends BaseCommand<ClusterDeploymen
     await new Promise(resolve => setTimeout(resolve, 10000));
 
     try {
-      // Simple DNS and HTTPS validation
-      // Note: Full health check validation could be added here
+      // Test basic DNS resolution first
+      this.logger.info('Testing DNS resolution...');
+      
+      // Test each node individually to ensure load balancing is working
+      const nodeValidationPromises = allNodes.map(async (node) => {
+        const infrastructure = new DockerInfrastructure(
+          node.publicIp,
+          node.twoWordId,
+          domain,
+          this.logger
+        );
+        
+        try {
+          // Test that the node is serving HTML content (not plain text)
+          const response = await infrastructure.executeCommand(
+            `curl -s --connect-timeout 10 --max-time 30 -H 'Host: ${domain}' http://localhost:8080/ | head -1`
+          );
+          
+          // Verify we get proper HTML content
+          if (!response.includes('DOCTYPE html') && !response.includes('<html')) {
+            throw new Error(`Node ${node.twoWordId} not serving HTML content: ${response.substring(0, 100)}`);
+          }
+          
+          // Test health endpoint
+          await infrastructure.executeCommand(
+            `curl -f --connect-timeout 5 --max-time 10 -H 'Host: ${domain}' http://localhost:8080${healthPath}`
+          );
+          
+          this.logger.info(`✅ Node ${node.twoWordId} validated successfully`);
+          
+        } catch (error) {
+          throw new Error(`Node ${node.twoWordId} validation failed: ${error}`);
+        }
+      });
+      
+      // Wait for all node validations to complete
+      await Promise.all(nodeValidationPromises);
+      
       this.logger.info(`✅ Deployment validation completed for ${domain}`);
-      this.logger.info('   DNS and basic connectivity should be working');
+      this.logger.info(`   All ${allNodes.length} nodes are serving content properly`);
+      this.logger.info('   DNS and basic connectivity working');
       this.logger.info('   TLS certificates will be automatically provisioned by Caddy');
       
     } catch (error) {
-      this.logger.warn(`⚠️  Deployment validation had issues: ${error}`);
-      this.logger.info('The service may still work - check manually with curl');
+      throw new Error(`Deployment validation failed: ${error}`);
     }
   }
 

@@ -1268,14 +1268,15 @@ ${clusterRoutes.map(route => {
       // Write complete Caddyfile (replacing any existing configuration)
       await this.ssh.copyContent(completeCaddyfile, caddyfilePath);
       
-      // Restart Caddy container to pick up new configuration (more reliable than reload)
-      await this.ssh.executeCommand('cd /opt/dynia/caddy && docker compose restart caddy');
+      // Use enhanced container restart with fallback and validation
+      await this.attemptContainerRestart();
+      await this.validateReverseProxy(clusterRoutes);
       
-      this.logger.info(`✅ Complete Caddyfile generated with ${clusterRoutes.length} route(s)`);
+      this.logger.info(`✅ Complete Caddyfile generated and verified with ${clusterRoutes.length} route(s)`);
       
     } catch (error) {
-      this.logger.warn(`Failed to generate complete Caddyfile: ${error}`);
-      this.logger.info('Service may still work, but routing might not be optimal');
+      this.logger.error(`❌ Container restart/validation failed: ${error}`);
+      throw error; // Propagate the error instead of silent failure
     }
   }
 
@@ -1493,6 +1494,95 @@ ${clusterRoutes.map(route => {
         expiryDays: 0
       };
     }
+  }
+
+  /**
+   * Enhanced container restart with fallback recreation and validation
+   */
+  private async attemptContainerRestart(): Promise<void> {
+    // Try 1: Simple restart (what we had before)
+    try {
+      await this.ssh.executeCommand('cd /opt/dynia/caddy && docker compose restart caddy');
+      await this.waitForContainerHealth();
+      this.logger.info('✅ Container restarted successfully');
+      return;
+    } catch (error) {
+      this.logger.warn(`Container restart failed: ${error}, attempting recreation...`);
+    }
+
+    // Try 2: Force recreation (what fixed the issue manually)
+    try {
+      await this.ssh.executeCommand('docker stop dynia-caddy && docker rm dynia-caddy');
+      await this.ssh.executeCommand('cd /opt/dynia/caddy && docker compose up -d');
+      await this.waitForContainerHealth();
+      this.logger.info('✅ Container recreated successfully');
+      return;
+    } catch (error) {
+      throw new Error(`Both restart and recreation failed: ${error}`);
+    }
+  }
+
+  /**
+   * Wait for container to become healthy and running
+   */
+  private async waitForContainerHealth(): Promise<void> {
+    await Helpers.retry(
+      async () => {
+        const statusResult = await this.ssh.executeCommand('docker ps --filter name=dynia-caddy --format json');
+        const statusTrimmed = statusResult.trim();
+        
+        if (!statusTrimmed) {
+          throw new Error('Container not found');
+        }
+        
+        const container = JSON.parse(statusTrimmed);
+        if (container.State !== 'running') {
+          throw new Error(`Container not running: ${container.State || 'unknown'}`);
+        }
+        
+        // Additional check: ensure container is actually responding
+        await this.ssh.executeCommand('docker exec dynia-caddy echo "health check"');
+      },
+      {
+        maxAttempts: 3,
+        baseDelay: 2000,
+        maxDelay: 5000,
+        description: 'Container health validation',
+      }
+    );
+  }
+
+  /**
+   * Validate that reverse proxy is actually working for the configured routes
+   */
+  private async validateReverseProxy(clusterRoutes: Array<{host: string; healthPath?: string}>): Promise<void> {
+    // Test the health endpoint first (should always work)
+    try {
+      await this.ssh.executeCommand(
+        'curl -f --connect-timeout 5 --max-time 10 http://localhost:8080/dynia-health'
+      );
+    } catch (error) {
+      throw new Error(`Caddy health endpoint not responding: ${error}`);
+    }
+
+    // Test each configured route
+    for (const route of clusterRoutes) {
+      try {
+        const testResult = await this.ssh.executeCommand(
+          `curl -f --connect-timeout 5 --max-time 10 -H 'Host: ${route.host}' http://localhost:8080/ | head -1`
+        );
+        
+        // Verify we get HTML content, not just plain text
+        if (!testResult.includes('DOCTYPE html') && !testResult.includes('<html')) {
+          throw new Error(`Route ${route.host} not serving HTML content: ${testResult.substring(0, 100)}`);
+        }
+        
+      } catch (error) {
+        throw new Error(`Reverse proxy test failed for ${route.host}: ${error}`);
+      }
+    }
+    
+    this.logger.info(`✅ Reverse proxy validated for ${clusterRoutes.length} route(s)`);
   }
 
   /**
