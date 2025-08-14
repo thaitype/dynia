@@ -276,7 +276,12 @@ export const clusterCommand: CommandModule<GlobalConfigOptions> = {
               describe: 'Prepare nodes in parallel (faster but harder to debug)',
               default: false,
             })
+            .option('node', {
+              type: 'string',
+              describe: 'Target specific node only (two-word ID, e.g., brave-panda)',
+            })
             .example('$0 cluster prepare myapp', 'Prepare all nodes in cluster')
+            .example('$0 cluster prepare myapp --node brave-panda', 'Prepare only specific node')
             .example('$0 cluster prepare myapp --force --parallel', 'Force parallel preparation'),
         handler: createCommandHandler(ClusterPrepareCommand),
       })

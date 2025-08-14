@@ -61,16 +61,12 @@ export class ClusterNodeAddCommand extends BaseCommand<ClusterNodeAddOptions> {
         const newNode = await this.createClusterNode(clusterInfo.name, nodeId, clusterInfo.region, clusterInfo.size, clusterInfo.vpcId, priority);
         createdNodes.push(newNode);
         
-        // Save node state immediately
-        await this.conditionalExecute(
-          () => this.stateManager.upsertClusterNode(newNode),
-          `save cluster node ${nodeId} to state`
-        );
-        
         this.logger.info(`✅ Node ${nodeId} created successfully`);
         
       } catch (error) {
         this.logger.error(`❌ Failed to create node ${nodeId}: ${error}`);
+        this.logger.info(`💡 The droplet may have been created but infrastructure setup failed.`);
+        this.logger.info(`   Use 'dynia cluster prepare ${cluster}' to complete setup of any partially configured nodes.`);
         
         // If we've created some nodes successfully, still report partial success
         if (createdNodes.length > 0) {
@@ -144,10 +140,7 @@ export class ClusterNodeAddCommand extends BaseCommand<ClusterNodeAddOptions> {
     // Wait for droplet to become active
     const activeDroplet = await doProvider.waitForDropletActive(droplet.id);
 
-    // Set up complete node infrastructure and add to cluster
-    await this.setupNodeInfrastructure(activeDroplet.ip, nodeId, clusterName);
-
-    // Create cluster node object
+    // Create cluster node object immediately after droplet creation
     const clusterNode: ClusterNode = {
       twoWordId: nodeId,
       clusterId: clusterName,
@@ -157,9 +150,26 @@ export class ClusterNodeAddCommand extends BaseCommand<ClusterNodeAddOptions> {
       privateIp: undefined, // Will be populated when VPC is fully integrated
       role: 'standby', // New nodes start as standby
       priority,
-      status: 'active', // Active means the droplet is running and configured
+      status: 'provisioning', // Mark as provisioning until infrastructure is ready
       createdAt: Helpers.generateTimestamp(),
     };
+
+    // Save node to state immediately after droplet creation
+    // This ensures we don't lose track of created droplets even if infrastructure setup fails
+    await this.conditionalExecute(
+      () => this.stateManager.upsertClusterNode(clusterNode),
+      `save cluster node ${nodeId} to state`
+    );
+
+    // Set up complete node infrastructure and add to cluster
+    await this.setupNodeInfrastructure(activeDroplet.ip, nodeId, clusterName);
+
+    // Update node status to active after successful infrastructure setup
+    clusterNode.status = 'active';
+    await this.conditionalExecute(
+      () => this.stateManager.upsertClusterNode(clusterNode),
+      `update cluster node ${nodeId} status to active`
+    );
 
     return clusterNode;
   }

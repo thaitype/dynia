@@ -7,15 +7,17 @@ export interface ClusterPrepareOptions {
   name: string;
   'force'?: boolean;
   'parallel'?: boolean;
+  'node'?: string;
 }
 
 /**
- * Command to prepare entire cluster infrastructure  
- * Ensures all nodes are properly configured according to HA design spec
+ * Command to prepare cluster infrastructure  
+ * Ensures nodes are properly configured according to HA design spec
+ * Can target specific nodes with --node parameter
  */
 export class ClusterPrepareCommand extends BaseCommand<ClusterPrepareOptions> {
   protected async run(): Promise<void> {
-    const { name: clusterName, force = false, parallel = false } = this.argv;
+    const { name: clusterName, force = false, parallel = false, node: targetNodeId } = this.argv;
 
     // Validate inputs
     ValidationUtils.validateRequiredArgs(this.argv, ['name']);
@@ -34,8 +36,19 @@ export class ClusterPrepareCommand extends BaseCommand<ClusterPrepareOptions> {
       throw new Error(`No nodes found in cluster '${clusterName}'. Add nodes first with 'dynia cluster node add'.`);
     }
 
-    this.logger.info(`Found ${allNodes.length} node${allNodes.length === 1 ? '' : 's'} to prepare:`);
-    allNodes.forEach(node => {
+    // Filter to specific node if --node parameter provided
+    let nodesToPrepare = allNodes;
+    if (targetNodeId) {
+      const targetNode = allNodes.find(node => node.twoWordId === targetNodeId);
+      if (!targetNode) {
+        throw new Error(`Node '${targetNodeId}' not found in cluster '${clusterName}'. Available nodes: ${allNodes.map(n => n.twoWordId).join(', ')}`);
+      }
+      nodesToPrepare = [targetNode];
+      this.logger.info(`🎯 Targeting specific node: ${targetNodeId}`);
+    }
+
+    this.logger.info(`Found ${nodesToPrepare.length} node${nodesToPrepare.length === 1 ? '' : 's'} to prepare:`);
+    nodesToPrepare.forEach(node => {
       this.logger.info(`  - ${node.twoWordId} (${node.publicIp}) [${node.role || 'standby'}]`);
     });
 
@@ -43,15 +56,20 @@ export class ClusterPrepareCommand extends BaseCommand<ClusterPrepareOptions> {
     const clusterPreparationService = new ClusterPreparationService(this.logger);
 
     if (!force) {
-      // Check which nodes need repair
+      // Check which nodes need repair (but pass all nodes for full cluster context)
       this.logger.info('🔍 Analyzing cluster health...');
-      const clusterHealth = await clusterPreparationService.checkClusterHealth(cluster, allNodes);
+      const clusterHealth = await clusterPreparationService.checkClusterHealth(cluster, nodesToPrepare);
       const unhealthyNodes = clusterHealth.nodeStatuses.filter(s => !s.prepared);
       
       if (unhealthyNodes.length === 0) {
-        this.logger.info('✅ All nodes are healthy and properly configured.');
-        this.logger.info('   Use --force to re-prepare all nodes anyway.');
-        this.showSummaryAndNextSteps(clusterName, allNodes);
+        if (targetNodeId) {
+          this.logger.info(`✅ Node ${targetNodeId} is healthy and properly configured.`);
+          this.logger.info('   Use --force to re-prepare this node anyway.');
+        } else {
+          this.logger.info('✅ All nodes are healthy and properly configured.');
+          this.logger.info('   Use --force to re-prepare all nodes anyway.');
+        }
+        this.showSummaryAndNextSteps(clusterName, nodesToPrepare);
         return;
       } else {
         this.logger.info(`🚨 Found ${unhealthyNodes.length} node${unhealthyNodes.length === 1 ? '' : 's'} that need repair:`);
@@ -67,7 +85,7 @@ export class ClusterPrepareCommand extends BaseCommand<ClusterPrepareOptions> {
 
     // Execute preparation using the service
     try {
-      await clusterPreparationService.prepareClusterNodes(cluster, allNodes, {
+      await clusterPreparationService.prepareClusterNodes(cluster, nodesToPrepare, {
         parallel,
         force,
         dryRun: this.dryRun
@@ -79,8 +97,12 @@ export class ClusterPrepareCommand extends BaseCommand<ClusterPrepareOptions> {
     }
 
     // Success summary
-    this.logger.info(`\\n✅ Cluster ${clusterName} repair and preparation complete!`);
-    this.showSummaryAndNextSteps(clusterName, allNodes);
+    if (targetNodeId) {
+      this.logger.info(`\\n✅ Node ${targetNodeId} preparation complete!`);
+    } else {
+      this.logger.info(`\\n✅ Cluster ${clusterName} repair and preparation complete!`);
+    }
+    this.showSummaryAndNextSteps(clusterName, nodesToPrepare);
   }
 
 

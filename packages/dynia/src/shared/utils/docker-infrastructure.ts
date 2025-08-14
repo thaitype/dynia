@@ -410,7 +410,7 @@ echo "   Docker Compose version: $(docker compose version)"
             backdrop-filter: blur(10px);
             border-radius: 20px;
             padding: 3rem;
-            max-width: 500px;
+            max-width: 600px;
             border: 1px solid rgba(255, 255, 255, 0.2);
         }
         h1 {
@@ -418,8 +418,19 @@ echo "   Docker Compose version: $(docker compose version)"
             margin-bottom: 1rem;
             font-weight: 300;
         }
-        .node-name {
-            font-size: 1.2rem;
+        .node-id {
+            font-size: 3rem;
+            font-weight: bold;
+            background: linear-gradient(45deg, #ff6b6b, #ffd93d);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin: 1.5rem 0;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            letter-spacing: 2px;
+        }
+        .domain-info {
+            font-size: 1.1rem;
             opacity: 0.8;
             margin-bottom: 2rem;
         }
@@ -429,6 +440,22 @@ echo "   Docker Compose version: $(docker compose version)"
             border-radius: 10px;
             padding: 1rem;
             margin: 1rem 0;
+        }
+        .load-balancer-info {
+            background: rgba(59, 130, 246, 0.2);
+            border: 1px solid rgba(59, 130, 246, 0.4);
+            border-radius: 10px;
+            padding: 1.5rem;
+            margin: 1.5rem 0;
+            font-size: 1.1rem;
+        }
+        .request-info {
+            background: rgba(168, 85, 247, 0.2);
+            border: 1px solid rgba(168, 85, 247, 0.4);
+            border-radius: 10px;
+            padding: 1rem;
+            margin: 1rem 0;
+            font-size: 0.9rem;
         }
         .timestamp {
             font-size: 0.9rem;
@@ -440,14 +467,32 @@ echo "   Docker Compose version: $(docker compose version)"
             margin-bottom: 1rem;
         }
     </style>
+    <script>
+        // Update request timestamp on each page load
+        window.onload = function() {
+            const requestTime = document.getElementById('request-time');
+            if (requestTime) {
+                requestTime.textContent = new Date().toISOString();
+            }
+        }
+    </script>
 </head>
 <body>
     <div class="container">
         <div class="logo">🚀</div>
-        <h1>Dynia Node</h1>
-        <div class="node-name">{{NODE_NAME}}.{{DOMAIN}}</div>
+        <h1>Dynia Cluster Node</h1>
+        <div class="node-id">{{NODE_NAME}}</div>
+        <div class="domain-info">{{DOMAIN}}</div>
+        <div class="load-balancer-info">
+            🔄 <strong>HAProxy Load Balancing Test</strong><br>
+            This request was served by node: <strong>{{NODE_NAME}}</strong>
+        </div>
+        <div class="request-info">
+            📍 Request served at: <span id="request-time">Loading...</span><br>
+            🎯 Node ID: <strong>{{NODE_NAME}}</strong>
+        </div>
         <div class="status">
-            ✅ Node is ready and waiting for deployment
+            ✅ Node is ready and load balancing active
         </div>
         <div class="timestamp">
             Node created: {{CREATED_AT}}
@@ -1121,7 +1166,7 @@ networks:
     }
     
     location /dynia-health {
-        return 200 "{\\"status\\": \\"healthy\\", \\"node\\": \\"${this.nodeName}\\", \\"service\\": \\"placeholder\\"}";
+        return 200 "{\\"status\\": \\"healthy\\", \\"nodeId\\": \\"${this.nodeName}\\", \\"service\\": \\"placeholder\\", \\"timestamp\\": \\"$time_iso8601\\", \\"loadBalancer\\": \\"HAProxy\\"}";
         add_header Content-Type application/json;
     }
 }`;
