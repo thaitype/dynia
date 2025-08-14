@@ -25,6 +25,14 @@ export class DockerInfrastructure {
   }
 
   /**
+   * Execute a command on the remote node via SSH
+   * Public method to allow external access to SSH execution
+   */
+  async executeCommand(command: string): Promise<string> {
+    return await this.ssh.executeCommand(command);
+  }
+
+  /**
    * Complete infrastructure setup on the remote node with retry logic
    */
   async setupInfrastructure(): Promise<void> {
@@ -259,69 +267,127 @@ echo "   Docker Compose version: $(docker compose version)"
    */
   async installSystemHAProxy(clusterNodes: Array<{twoWordId: string; privateIp: string; publicIp: string; role?: string}>, clusterName: string, reservedIp?: string): Promise<void> {
     this.logger.info('Installing HAProxy as system service...');
-
-    // Stop and remove any existing Docker HAProxy first
-    await this.ssh.executeCommand('cd /opt/dynia/haproxy && docker compose down || true');
-    await this.ssh.executeCommand('docker stop dynia-haproxy || true');
-    await this.ssh.executeCommand('docker rm dynia-haproxy || true');
-
-    // Install HAProxy system package
-    await this.ssh.executeCommand(`
-      apt update && 
-      apt install -y haproxy
-    `);
-
-    // Note: Certificate provisioning is now handled separately via ensureCertificates()
-    // This allows certificates to be managed independently of HAProxy installation
-
-    // Generate HAProxy configuration from template
-    const activeNode = clusterNodes.find(n => n.role === 'active') || clusterNodes[0];
-    const haproxyTemplate = await this.loadTemplate('system-haproxy.cfg');
     
-    // Generate backend servers for all cluster nodes (pointing to Caddy internal ports)
-    const backendServers = clusterNodes.map((node, index) => {
-      const serverId = `node${index + 1}`;
-      // Use private IP for VPC communication, fallback to public IP
-      const serverIp = node.privateIp || node.publicIp;
-      return `    server ${serverId} ${serverIp}:8080 check inter 5s fall 3 rise 2`;
-    }).join('\n');
-
-    // For single-node setups, bind to all interfaces; Reserved IP routing handled by network
-    // In true HA setups, keepalived would manage the Reserved IP assignment
-    const bindIp = '*'; // Bind to all interfaces
-    
-    this.logger.info(`Configuring HAProxy to bind to all interfaces (Reserved IP: ${reservedIp})`);
-
-    // Replace template placeholders
-    const haproxyConfig = haproxyTemplate
-      .replace(/{{CLUSTER_NAME}}/g, clusterName)
-      .replace(/{{ACTIVE_NODE}}/g, activeNode.twoWordId)
-      .replace(/{{TOTAL_NODES}}/g, clusterNodes.length.toString())
-      .replace(/{{RESERVED_IP}}/g, bindIp)
-      .replace(/{{BACKEND_SERVERS}}/g, backendServers)
-      .replace(/{{HOST_ACLS}}/g, '    # Host-based routing will be configured per deployment')
-      .replace(/{{BACKENDS}}/g, '# Dynamic backends will be added per service deployment');
-
-    // Backup existing config if it exists
-    await this.ssh.executeCommand('cp /etc/haproxy/haproxy.cfg /etc/haproxy/backup/haproxy.cfg.$(date +%Y%m%d-%H%M%S) 2>/dev/null || true');
-
-    // Deploy HAProxy configuration
-    await this.ssh.copyContent(haproxyConfig, '/etc/haproxy/haproxy.cfg');
-
-    // Test configuration before restarting
-    await this.ssh.executeCommand('haproxy -c -f /etc/haproxy/haproxy.cfg');
-
-    // Enable and start HAProxy service
-    await this.ssh.executeCommand(`
-      systemctl enable haproxy &&
-      systemctl restart haproxy &&
-      systemctl is-active haproxy
-    `);
-
-    // Verify HAProxy is listening on expected ports
-    await this.ssh.executeCommand('sleep 3 && ss -tlnp | grep -E ":(80|443|8404)" | head -5');
-
-    this.logger.info('✅ System HAProxy installed and configured successfully');
+    try {
+      // Stop and remove any existing Docker HAProxy first
+      await this.ssh.executeCommand('cd /opt/dynia/haproxy && docker compose down || true');
+      await this.ssh.executeCommand('docker stop dynia-haproxy || true');
+      await this.ssh.executeCommand('docker rm dynia-haproxy || true');
+      
+      // Create backup directory
+      await this.ssh.executeCommand('mkdir -p /etc/haproxy/backup');
+      
+      // Install HAProxy system package with explicit error checking
+      this.logger.info('📦 Installing HAProxy package...');
+      const installResult = await this.ssh.executeCommand('apt update -qq && apt install -y haproxy');
+      this.logger.debug(`Package installation output: ${installResult}`);
+      
+      // Verify HAProxy binary was installed
+      const haproxyCheck = await this.ssh.executeCommand('which haproxy || echo "NOT_FOUND"');
+      if (haproxyCheck.trim() === 'NOT_FOUND') {
+        throw new Error('HAProxy package installation failed - binary not found');
+      }
+      this.logger.info(`✅ HAProxy binary installed at: ${haproxyCheck.trim()}`);
+      
+      // Generate HAProxy configuration from template
+      const activeNode = clusterNodes.find(n => n.role === 'active') || clusterNodes[0];
+      const haproxyTemplate = await this.loadTemplate('system-haproxy.cfg');
+      
+      // Generate backend servers for all cluster nodes (pointing to Caddy internal ports)
+      const backendServers = clusterNodes.map((node, index) => {
+        const serverId = `node${index + 1}`;
+        // Use private IP for VPC communication, fallback to public IP
+        const serverIp = node.privateIp || node.publicIp;
+        this.logger.info(`🔍 DEBUG: Node ${node.twoWordId} - privateIp: ${node.privateIp}, publicIp: ${node.publicIp}, using: ${serverIp}`);
+        return `    server ${serverId} ${serverIp}:8080 check inter 5s fall 3 rise 2`;
+      }).join('\n');
+      
+      // For single-node setups, bind to all interfaces; Reserved IP routing handled by network
+      const bindIp = '*'; // Bind to all interfaces
+      
+      this.logger.info(`🔧 Configuring HAProxy with ${clusterNodes.length} backend servers...`);
+      this.logger.debug(`Backend servers: ${backendServers}`);
+      
+      // Replace template placeholders
+      const haproxyConfig = haproxyTemplate
+        .replace(/{{CLUSTER_NAME}}/g, clusterName)
+        .replace(/{{ACTIVE_NODE}}/g, activeNode.twoWordId)
+        .replace(/{{TOTAL_NODES}}/g, clusterNodes.length.toString())
+        .replace(/{{RESERVED_IP}}/g, bindIp)
+        .replace(/{{BACKEND_SERVERS}}/g, backendServers)
+        .replace(/{{HOST_ACLS}}/g, '    # Host-based routing will be configured per deployment')
+        .replace(/{{BACKENDS}}/g, '# Dynamic backends will be added per service deployment');
+      
+      // Backup existing config if it exists
+      const timestamp = new Date().toISOString().replace(/[:-]/g, '').replace(/\..+/, '').replace('T', '-');
+      await this.ssh.executeCommand(`cp /etc/haproxy/haproxy.cfg /etc/haproxy/backup/haproxy.cfg.${timestamp} 2>/dev/null || true`);
+      
+      // Create SSL certificate directory
+      await this.ssh.executeCommand('mkdir -p /etc/haproxy/certs');
+      
+      // Deploy HAProxy configuration
+      this.logger.info('📝 Writing HAProxy configuration...');
+      await this.ssh.copyContent(haproxyConfig, '/etc/haproxy/haproxy.cfg');
+      
+      // Verify config file was written
+      const configCheck = await this.ssh.executeCommand('test -f /etc/haproxy/haproxy.cfg && echo "EXISTS" || echo "MISSING"');
+      if (configCheck.trim() === 'MISSING') {
+        throw new Error('Failed to write HAProxy configuration file');
+      }
+      
+      // Test configuration before restarting
+      this.logger.info('🔍 Validating HAProxy configuration...');
+      const configTest = await this.ssh.executeCommand('haproxy -c -f /etc/haproxy/haproxy.cfg');
+      this.logger.debug(`Config validation output: ${configTest}`);
+      
+      // Enable and start HAProxy service with explicit error checking
+      this.logger.info('🚀 Starting HAProxy service...');
+      await this.ssh.executeCommand('systemctl enable haproxy');
+      await this.ssh.executeCommand('systemctl restart haproxy');
+      
+      // Verify service is actually active
+      const serviceStatus = await this.ssh.executeCommand('systemctl is-active haproxy || echo "FAILED"');
+      if (serviceStatus.trim() !== 'active') {
+        // Get detailed error information
+        const serviceError = await this.ssh.executeCommand('systemctl status haproxy --no-pager -l');
+        throw new Error(`HAProxy service failed to start. Status: ${serviceStatus.trim()}\nDetails: ${serviceError}`);
+      }
+      this.logger.info('✅ HAProxy service is active');
+      
+      // Verify HAProxy is listening on expected ports
+      this.logger.info('🔍 Verifying port bindings...');
+      const portCheck = await this.ssh.executeCommand('sleep 3 && ss -tlnp | grep -E ":(80|443|8404)" | head -5');
+      this.logger.debug(`Port bindings: ${portCheck}`);
+      
+      // Final verification: test HAProxy stats endpoint
+      const statsCheck = await this.ssh.executeCommand('curl -s --connect-timeout 5 http://localhost:8404/stats | head -1 || echo "STATS_FAILED"');
+      if (statsCheck.includes('STATS_FAILED')) {
+        this.logger.warn('⚠️ HAProxy stats endpoint not accessible, but service is running');
+      } else {
+        this.logger.info('✅ HAProxy stats endpoint accessible');
+      }
+      
+      this.logger.info('✅ System HAProxy installed and configured successfully');
+      
+    } catch (error) {
+      this.logger.error(`❌ HAProxy installation failed: ${error}`);
+      
+      // Attempt to get more diagnostic information
+      try {
+        const diagnostics = await this.ssh.executeCommand(`
+          echo "=== HAProxy Installation Diagnostics ===" &&
+          echo "HAProxy binary:" && (which haproxy || echo "NOT FOUND") &&
+          echo "Service status:" && (systemctl is-active haproxy || echo "INACTIVE") &&
+          echo "Config file:" && (test -f /etc/haproxy/haproxy.cfg && echo "EXISTS" || echo "MISSING") &&
+          echo "Last journal entries:" && journalctl -u haproxy --no-pager -l -n 10 || echo "No journal entries"
+        `);
+        this.logger.error(`Diagnostics: ${diagnostics}`);
+      } catch (diagError) {
+        this.logger.error(`Failed to get diagnostics: ${diagError}`);
+      }
+      
+      throw new Error(`HAProxy installation failed: ${error}`);
+    }
   }
 
   /**
@@ -683,8 +749,8 @@ frontend public_https
     # Host-based routing ACLs
 {{HOST_ACLS}}
     
-    # Default backend (forward to Caddy HTTP)
-    default_backend caddy_http_backend
+    # Default backend (load balance across cluster via VPC)
+    default_backend cluster_backends
 
 {{BACKENDS}}
 

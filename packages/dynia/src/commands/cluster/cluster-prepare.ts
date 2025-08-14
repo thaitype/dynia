@@ -35,6 +35,9 @@ export class ClusterPrepareCommand extends BaseCommand<ClusterPrepareOptions> {
     if (allNodes.length === 0) {
       throw new Error(`No nodes found in cluster '${clusterName}'. Add nodes first with 'dynia cluster node add'.`);
     }
+    
+    // DEBUG: Log how many total cluster nodes we found
+    this.logger.info(`🔍 DEBUG: Found ${allNodes.length} total cluster nodes: ${allNodes.map(n => n.twoWordId).join(', ')}`);
 
     // Filter to specific node if --node parameter provided
     let nodesToPrepare = allNodes;
@@ -84,11 +87,13 @@ export class ClusterPrepareCommand extends BaseCommand<ClusterPrepareOptions> {
     }
 
     // Execute preparation using the service
+    // Pass ALL cluster nodes for HAProxy config, but only prepare filtered nodes
     try {
-      await clusterPreparationService.prepareClusterNodes(cluster, nodesToPrepare, {
+      await clusterPreparationService.prepareClusterNodes(cluster, allNodes, {
         parallel,
         force,
-        dryRun: this.dryRun
+        dryRun: this.dryRun,
+        targetNodes: targetNodeId ? [targetNodeId] : undefined
       });
       
     } catch (error) {

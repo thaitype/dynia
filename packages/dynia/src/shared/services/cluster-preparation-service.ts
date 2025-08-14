@@ -6,6 +6,7 @@ export interface ClusterPreparationOptions {
   parallel?: boolean;
   force?: boolean;
   dryRun?: boolean;
+  targetNodes?: string[]; // Filter to only prepare these node IDs
 }
 
 /**

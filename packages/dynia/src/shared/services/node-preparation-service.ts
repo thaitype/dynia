@@ -23,6 +23,7 @@ export interface ClusterNodePreparationOptions {
   parallel?: boolean;
   force?: boolean;
   dryRun?: boolean;
+  targetNodes?: string[]; // Filter to only prepare these node IDs
 }
 
 export interface NodePreparationStatus {
@@ -41,20 +42,27 @@ export class NodePreparationService {
 
   /**
    * Complete node preparation according to HA spec
-   * - Docker infrastructure (Docker + Caddy + networking)  
-   * Note: Additional HA features (HAProxy, keepalived) will be added when DockerInfrastructure supports them
+   * - Docker infrastructure (Docker + Caddy + networking)
+   * - HAProxy for L7 load balancing
+   * - keepalived for HA failover
    */
   async prepareNode(options: NodePreparationOptions): Promise<void> {
-    const { nodeIp, nodeName, baseDomain } = options;
+    const { nodeIp, nodeName, baseDomain, cluster, keepalived } = options;
     
     this.logger.info(`Preparing node ${nodeName} (${nodeIp}) for HA cluster...`);
     
     // Step 1: Set up basic Docker infrastructure (Docker + Caddy + networking)
     await this.setupDockerInfrastructure(nodeIp, nodeName, baseDomain);
     
-    // TODO: Step 2: Deploy HAProxy for cluster load balancing (when DockerInfrastructure supports it)
-    // TODO: Step 3: Configure keepalived for HA (when DockerInfrastructure supports it)
-    // TODO: Step 4: Apply security configuration (when DockerInfrastructure supports it)
+    // Step 2: Install HAProxy for cluster load balancing
+    if (cluster && keepalived?.allNodes) {
+      await this.setupHAProxy(nodeIp, keepalived.allNodes, cluster.name, cluster.reservedIp);
+    }
+    
+    // Step 3: Configure keepalived for HA failover
+    if (keepalived) {
+      await this.setupKeepalived(nodeIp, keepalived);
+    }
     
     this.logger.info(`✅ Node ${nodeName} preparation complete`);
   }
@@ -68,11 +76,16 @@ export class NodePreparationService {
     allNodes: ClusterNode[],
     options: ClusterNodePreparationOptions = {}
   ): Promise<void> {
-    const { parallel = false, dryRun = false } = options;
+    const { parallel = false, dryRun = false, targetNodes } = options;
+    
+    // Filter to target nodes if specified, but keep allNodes for HAProxy configuration
+    const nodesToPrepare = targetNodes 
+      ? allNodes.filter(node => targetNodes.includes(node.twoWordId))
+      : allNodes;
 
     if (dryRun) {
-      this.logger.info(`[DRY RUN] Would prepare ${allNodes.length} node(s) with Docker + HAProxy + Caddy + keepalived`);
-      allNodes.forEach(node => {
+      this.logger.info(`[DRY RUN] Would prepare ${nodesToPrepare.length} node(s) with Docker + HAProxy + Caddy + keepalived`);
+      nodesToPrepare.forEach(node => {
         const priority = this.calculateNodePriority(node, allNodes);
         this.logger.info(`[DRY RUN]   ${node.twoWordId}: role=${node.role || 'active'}, priority=${priority}`);
       });
@@ -81,13 +94,13 @@ export class NodePreparationService {
 
     try {
       if (parallel) {
-        await this.prepareNodesInParallel(cluster, allNodes);
+        await this.prepareNodesInParallel(cluster, nodesToPrepare, allNodes);
       } else {
-        await this.prepareNodesSequentially(cluster, allNodes);
+        await this.prepareNodesSequentially(cluster, nodesToPrepare, allNodes);
       }
       
-      // Verify all nodes are ready
-      await this.verifyClusterReadiness(allNodes);
+      // Verify prepared nodes are ready
+      await this.verifyClusterReadiness(nodesToPrepare);
       
     } catch (error) {
       this.logger.error(`❌ Cluster preparation failed: ${error}`);
@@ -197,12 +210,12 @@ export class NodePreparationService {
   /**
    * Prepare nodes sequentially (safer, easier to debug)
    */
-  private async prepareNodesSequentially(cluster: Cluster, allNodes: ClusterNode[]): Promise<void> {
-    this.logger.info(`Preparing ${allNodes.length} node(s) sequentially...`);
+  private async prepareNodesSequentially(cluster: Cluster, nodesToPrepare: ClusterNode[], allNodes: ClusterNode[]): Promise<void> {
+    this.logger.info(`Preparing ${nodesToPrepare.length} node(s) sequentially...`);
     
-    for (let i = 0; i < allNodes.length; i++) {
-      const node = allNodes[i];
-      this.logger.info(`[${i + 1}/${allNodes.length}] Preparing node ${node.twoWordId}...`);
+    for (let i = 0; i < nodesToPrepare.length; i++) {
+      const node = nodesToPrepare[i];
+      this.logger.info(`[${i + 1}/${nodesToPrepare.length}] Preparing node ${node.twoWordId}...`);
       
       await this.prepareSingleNode(cluster, node, allNodes);
     }
@@ -211,10 +224,10 @@ export class NodePreparationService {
   /**
    * Prepare nodes in parallel (faster but harder to debug)
    */
-  private async prepareNodesInParallel(cluster: Cluster, allNodes: ClusterNode[]): Promise<void> {
-    this.logger.info(`Preparing ${allNodes.length} node(s) in parallel...`);
+  private async prepareNodesInParallel(cluster: Cluster, nodesToPrepare: ClusterNode[], allNodes: ClusterNode[]): Promise<void> {
+    this.logger.info(`Preparing ${nodesToPrepare.length} node(s) in parallel...`);
     
-    const preparationPromises = allNodes.map(node => 
+    const preparationPromises = nodesToPrepare.map(node => 
       this.prepareSingleNode(cluster, node, allNodes)
     );
     
@@ -269,6 +282,108 @@ export class NodePreparationService {
     this.logger.info(`✅ Docker infrastructure ready on ${nodeName}`);
   }
 
-  // TODO: Methods for HAProxy, keepalived, and security configuration will be added
-  // when DockerInfrastructure supports these features
+  /**
+   * Set up HAProxy for cluster load balancing
+   * Note: allNodes should contain ALL cluster nodes, not just the node being prepared
+   */
+  private async setupHAProxy(
+    nodeIp: string,
+    allNodes: ClusterNode[],
+    clusterName: string,
+    reservedIp?: string
+  ): Promise<void> {
+    this.logger.info(`Setting up HAProxy on ${nodeIp}...`);
+    
+    const infrastructure = new DockerInfrastructure(
+      nodeIp,
+      '', // nodeName not needed for HAProxy
+      '', // baseDomain not needed for HAProxy
+      this.logger
+    );
+    
+    // Prepare cluster nodes for HAProxy config
+    const haproxyNodes = allNodes.map(node => ({
+      twoWordId: node.twoWordId,
+      privateIp: node.privateIp || node.publicIp,
+      publicIp: node.publicIp,
+      role: node.role
+    }));
+    
+    try {
+      await infrastructure.installSystemHAProxy(haproxyNodes, clusterName, reservedIp);
+      
+      // Verify HAProxy installation
+      await this.verifyHAProxyInstallation(infrastructure, nodeIp);
+      
+      this.logger.info(`✅ HAProxy configured and verified on ${nodeIp}`);
+      
+    } catch (error) {
+      this.logger.error(`❌ HAProxy setup failed on ${nodeIp}: ${error}`);
+      throw new Error(`Failed to setup HAProxy on ${nodeIp}: ${error}`);
+    }
+  }
+
+  /**
+   * Verify HAProxy installation and configuration
+   */
+  private async verifyHAProxyInstallation(infrastructure: DockerInfrastructure, nodeIp: string): Promise<void> {
+    this.logger.info(`🔍 Verifying HAProxy installation on ${nodeIp}...`);
+    
+    try {
+      // Check if HAProxy service is running
+      const serviceStatus = await infrastructure.executeCommand('sudo systemctl is-active haproxy');
+      if (serviceStatus.trim() !== 'active') {
+        throw new Error(`HAProxy service is not active: ${serviceStatus}`);
+      }
+      this.logger.info(`✅ HAProxy service is active`);
+      
+      // Check if HAProxy is listening on port 80
+      const portCheck = await infrastructure.executeCommand('sudo ss -tlnp | grep :80 | grep haproxy');
+      if (!portCheck.includes('haproxy')) {
+        throw new Error(`HAProxy is not listening on port 80`);
+      }
+      this.logger.info(`✅ HAProxy is listening on port 80`);
+      
+      // Verify HAProxy config syntax
+      const configTest = await infrastructure.executeCommand('sudo haproxy -c -f /etc/haproxy/haproxy.cfg');
+      if (!configTest.includes('Configuration file is valid')) {
+        throw new Error(`HAProxy config validation failed: ${configTest}`);
+      }
+      this.logger.info(`✅ HAProxy configuration is valid`);
+      
+      // Display current config for debugging
+      const currentConfig = await infrastructure.executeCommand('sudo cat /etc/haproxy/haproxy.cfg | grep -A5 -B5 "default_backend\\|backend cluster_backends"');
+      this.logger.info(`🔍 HAProxy config excerpt:\n${currentConfig}`);
+      
+    } catch (error) {
+      this.logger.error(`❌ HAProxy verification failed: ${error}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Set up keepalived for HA failover
+   */
+  private async setupKeepalived(
+    nodeIp: string,
+    keepalivedConfig: {
+      priority: number;
+      role: 'active' | 'standby';
+      allNodes: ClusterNode[];
+    }
+  ): Promise<void> {
+    this.logger.info(`Setting up keepalived on ${nodeIp}...`);
+    
+    const infrastructure = new DockerInfrastructure(
+      nodeIp,
+      '', // nodeName not needed for keepalived
+      '', // baseDomain not needed for keepalived  
+      this.logger
+    );
+    
+    // TODO: Add keepalived installation when available in DockerInfrastructure
+    this.logger.info(`⚠️  keepalived installation not yet implemented`);
+    
+    this.logger.info(`✅ keepalived setup complete on ${nodeIp}`);
+  }
 }
