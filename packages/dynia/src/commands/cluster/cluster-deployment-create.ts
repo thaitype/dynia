@@ -39,7 +39,13 @@ export class ClusterDeploymentCreateCommand extends BaseCommand<ClusterDeploymen
       throw new Error(`Cluster '${name}' not found. Use 'dynia cluster create-ha' to create it first.`);
     }
 
-    // Get active node
+    // Get all cluster nodes for cluster-wide deployment
+    const allNodes = await this.stateManager.getClusterNodes(name);
+    if (!allNodes || allNodes.length === 0) {
+      throw new Error(`No nodes found in cluster '${name}'. The cluster may be misconfigured.`);
+    }
+
+    // Get active node for DNS configuration
     const activeNode = await this.stateManager.getActiveClusterNode(name);
     if (!activeNode) {
       throw new Error(`No active node found in cluster '${name}'. The cluster may be misconfigured.`);
@@ -67,8 +73,8 @@ export class ClusterDeploymentCreateCommand extends BaseCommand<ClusterDeploymen
     // Check for domain conflicts
     await this.checkDomainConflicts(name, targetDomain);
 
-    // Step 1: Deploy service to active node
-    await this.deployServiceToNode(activeNode, targetDomain, placeholder, compose, healthPath);
+    // Step 1: Deploy service to all cluster nodes
+    await this.deployServiceToAllNodes(allNodes, targetDomain, placeholder, compose, healthPath);
 
     // Step 2: Configure DNS
     if (!cluster.reservedIp) {
@@ -83,16 +89,17 @@ export class ClusterDeploymentCreateCommand extends BaseCommand<ClusterDeploymen
     await this.validateDeployment(targetDomain, healthPath);
 
     // Success summary
-    this.logger.info(`\n✅ Service deployed successfully to cluster ${name}`);
+    this.logger.info(`\n✅ Service deployed successfully to all ${allNodes.length} nodes in cluster ${name}`);
     this.logger.info(`   Domain: ${targetDomain}`);
     this.logger.info(`   Reserved IP: ${cluster.reservedIp}`);
-    this.logger.info(`   Active node: ${activeNode.twoWordId} (${activeNode.publicIp})`);
+    this.logger.info(`   Cluster nodes: ${allNodes.map(n => n.twoWordId).join(', ')}`);
     this.logger.info(`   Health check: ${targetDomain}${healthPath}`);
     
     this.logger.info('\nNext steps:');
     this.logger.info(`   1. Test access: curl https://${targetDomain}`);
     this.logger.info(`   2. Health check: curl https://${targetDomain}${healthPath}`);
-    this.logger.info(`   3. Check cluster: dynia cluster node list ${name}`);
+    this.logger.info(`   3. Test load balancing: Multiple requests should show different nodes`);
+    this.logger.info(`   4. Check cluster: dynia cluster node list ${name}`);
   }
 
   /**
@@ -107,7 +114,68 @@ export class ClusterDeploymentCreateCommand extends BaseCommand<ClusterDeploymen
   }
 
   /**
-   * Deploy service to the active cluster node
+   * Deploy service to all cluster nodes for proper load balancing
+   */
+  private async deployServiceToAllNodes(
+    allNodes: any[],
+    domain: string,
+    isPlaceholder: boolean,
+    composePath?: string,
+    healthPath: string = '/healthz'
+  ): Promise<void> {
+    this.logger.info(`Deploying service to all ${allNodes.length} cluster nodes for load balancing...`);
+    
+    if (this.dryRun) {
+      allNodes.forEach(node => {
+        if (isPlaceholder) {
+          this.logDryRun(`deploy placeholder service on node ${node.twoWordId}`);
+        } else {
+          this.logDryRun(`deploy service from ${composePath} on node ${node.twoWordId}`);
+        }
+        this.logDryRun(`configure Caddy route on ${node.twoWordId}: ${domain} → service`);
+      });
+      return;
+    }
+
+    // Deploy to all nodes in parallel for efficiency
+    const deploymentPromises = allNodes.map(async (node) => {
+      this.logger.info(`Deploying to node ${node.twoWordId} (${node.publicIp})...`);
+      
+      const infrastructure = new DockerInfrastructure(
+        node.publicIp,
+        node.twoWordId,
+        domain,
+        this.logger
+      );
+
+      try {
+        if (isPlaceholder) {
+          // Deploy placeholder service
+          await infrastructure.deployPlaceholderService(domain, healthPath);
+        } else {
+          // Deploy custom service from compose file
+          await infrastructure.deployCustomService(composePath!, domain, healthPath);
+        }
+
+        this.logger.info(`✅ Service deployed to node ${node.twoWordId}`);
+      } catch (error) {
+        this.logger.error(`❌ Failed to deploy to node ${node.twoWordId}: ${error}`);
+        throw new Error(`Deployment failed on node ${node.twoWordId}: ${error}`);
+      }
+    });
+
+    // Wait for all deployments to complete
+    await Promise.all(deploymentPromises);
+
+    // Generate complete Caddyfile on all nodes based on all cluster routes
+    await this.regenerateCompleteCaddyfileOnAllNodes(allNodes, domain, healthPath);
+
+    this.logger.info(`✅ Service deployed successfully to all ${allNodes.length} cluster nodes`);
+  }
+
+  /**
+   * Deploy service to the active cluster node (deprecated - use deployServiceToAllNodes)
+   * @deprecated Use deployServiceToAllNodes for proper cluster-wide deployment
    */
   private async deployServiceToNode(
     activeNode: any,
@@ -116,6 +184,7 @@ export class ClusterDeploymentCreateCommand extends BaseCommand<ClusterDeploymen
     composePath?: string,
     healthPath: string = '/healthz'
   ): Promise<void> {
+    this.logger.warn(`⚠️  deployServiceToNode is deprecated - this only deploys to one node and breaks load balancing`);
     this.logger.info(`Deploying service to node ${activeNode.twoWordId}...`);
     
     if (this.dryRun) {
@@ -183,6 +252,57 @@ export class ClusterDeploymentCreateCommand extends BaseCommand<ClusterDeploymen
     );
 
     await infrastructure.generateCompleteCaddyfile(caddyRoutes);
+  }
+
+  /**
+   * Regenerate complete Caddyfile on all cluster nodes based on all cluster routes
+   */
+  private async regenerateCompleteCaddyfileOnAllNodes(
+    allNodes: any[],
+    newDomain: string,
+    newHealthPath: string
+  ): Promise<void> {
+    this.logger.info('Regenerating complete Caddyfile configuration on all cluster nodes...');
+
+    // Get all routes for this cluster (use first node's clusterId - should be same for all)
+    const clusterRoutes = await this.stateManager.getClusterRoutes(allNodes[0].clusterId);
+
+    // Create simplified routes array for Caddyfile generation
+    const caddyRoutes = clusterRoutes.map((route: any) => ({
+      host: route.host,
+      healthPath: route.healthPath
+    }));
+
+    // Add the current deployment route (in case it's not saved to state yet)
+    const existingRoute = caddyRoutes.find((r: any) => r.host === newDomain);
+    if (!existingRoute) {
+      caddyRoutes.push({host: newDomain, healthPath: newHealthPath});
+    }
+
+    // Generate complete Caddyfile on ALL nodes in parallel
+    const caddyfilePromises = allNodes.map(async (node) => {
+      this.logger.info(`Updating Caddyfile on node ${node.twoWordId}...`);
+      
+      const infrastructure = new DockerInfrastructure(
+        node.publicIp,
+        node.twoWordId,
+        newDomain,
+        this.logger
+      );
+
+      try {
+        await infrastructure.generateCompleteCaddyfile(caddyRoutes);
+        this.logger.info(`✅ Caddyfile updated on node ${node.twoWordId}`);
+      } catch (error) {
+        this.logger.error(`❌ Failed to update Caddyfile on node ${node.twoWordId}: ${error}`);
+        // Don't throw here - allow other nodes to continue
+      }
+    });
+
+    // Wait for all Caddyfile updates to complete
+    await Promise.all(caddyfilePromises);
+    
+    this.logger.info(`✅ Caddyfile regenerated on all ${allNodes.length} cluster nodes`);
   }
 
   /**

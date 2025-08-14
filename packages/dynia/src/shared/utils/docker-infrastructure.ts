@@ -62,13 +62,9 @@ export class DockerInfrastructure {
       description: 'Caddy deployment',
     });
 
-    // Step 4: Deploy placeholder service (with retry)
-    await Helpers.retry(() => this.deployPlaceholder(), {
-      maxAttempts: 2,
-      baseDelay: 5000, // 5 seconds
-      maxDelay: 15000, // 15 seconds max
-      description: 'Placeholder service deployment',
-    });
+    // Step 4: Infrastructure setup complete
+    // Note: Placeholder service should be deployed via 'dynia cluster deployment create --placeholder'
+    // not as part of infrastructure setup
 
     this.logger.info('✅ Docker infrastructure setup complete');
   }
@@ -591,7 +587,7 @@ http {
     types_hash_max_size 2048;
     
     server {
-        listen 8080;
+        listen 80;
         server_name _;
         
         root /usr/share/nginx/html;

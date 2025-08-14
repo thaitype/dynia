@@ -29,6 +29,12 @@ Dynia is a lightweight, CLI-driven orchestrator for small clusters that provisio
 
 ### Local CLI Testing
 - `pnpm --filter @examples/basic dynia` - Run the Dynia CLI in the basic example project (make sure cli is built first)
+- `pnpm tsx packages/dynia/src/debug.ts` - Run isolated debugging utilities for data flow testing
+
+### Debugging Commands
+- **Debug utilities first**: Create debug.ts scripts to test data flow in isolation before running full commands
+- **Full system testing**: Only use full CLI commands after isolated testing confirms data flow
+- **Data tracing**: Always trace data from source to destination when debugging
 
 ## Architecture
 
@@ -60,6 +66,7 @@ The main CLI (`packages/dynia`) uses:
 - **Prettier** with import sorting and consistent style (120 char width, single quotes)
 - **Husky** pre-push hooks run `pnpm lint:husky` (lint + format checks)
 - **Vitest** for testing with Istanbul coverage
+- **Debug utilities**: Use packages/dynia/src/debug.ts for isolated component testing
 
 ## Key Technical Details
 
@@ -78,3 +85,41 @@ Each package follows this build sequence:
 - TypeScript configs extend from `@dynia/config-typescript` 
 - ESLint configs extend from `@dynia/config-eslint`
 - Vitest configs use `@dynia/config-vitest`
+
+## Cluster Architecture
+
+### High Availability Design
+- **L3/L4 Failover**: Reserved IP binding using keepalived (for node-level failover)
+- **L7 Load Balancing**: HAProxy distributes traffic to apps on all nodes via VPC private IPs
+- **Critical**: HAProxy must receive ALL cluster nodes, not just filtered nodes for preparation
+
+### Data Flow Patterns
+- **Node Filtering**: `cluster prepare --node <name>` filters nodes for preparation but NOT for configuration
+- **Service Configuration**: HAProxy, keepalived configs need complete cluster node data
+- **Parameter Passing**: Separate `nodesToPrepare` (filtered) from `allNodes` (for config)
+
+## Debugging Best Practices
+
+### Methodology
+1. **Listen to User Feedback**: Pay attention to user guidance about root cause areas
+2. **Isolated Testing**: Create debug utilities (debug.ts) to test small components before full system runs
+3. **Data Flow Tracing**: Always verify data from source to destination, don't assume intermediate steps
+4. **Simple Solutions First**: Most bugs have simple fixes - avoid overengineering complex solutions
+
+### Common Pitfalls
+- **Wrong Assumptions**: Don't assume where bugs are located without verification
+- **Overengineered Solutions**: Prefer finding simple root causes over complex fixes
+- **Full System Testing**: Avoid running full commands (2+ minute cycles) when debugging data flow
+- **Parameter Passing**: Be extremely careful about what data is passed between services
+
+### Debug Workflow
+1. **Create debug.ts**: Write isolated test scripts for suspected problem areas
+2. **Verify Data Flow**: Test that correct data reaches each service layer
+3. **Trace Parameters**: Follow data from command parsing through service calls
+4. **Simple Validation**: Use logging and debug output to verify assumptions
+
+### Development Workflow Guidelines
+- **Debug First**: Create isolated tests before debugging full system flows
+- **Keep Debug Tools**: Maintain debug.ts and similar utilities for future use
+- **User Feedback**: Take user criticism as valuable guidance about debugging approach
+- **Focus**: Don't get distracted by secondary issues when debugging core functionality
