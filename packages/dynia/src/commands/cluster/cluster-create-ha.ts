@@ -3,9 +3,8 @@ import { ValidationUtils } from '../../shared/utils/validation.js';
 import { Helpers } from '../../shared/utils/helpers.js';
 import { TwoWordNameGenerator } from '../../shared/utils/two-word-generator.js';
 import { createDigitalOceanProvider } from '../../core/providers/digitalocean-provider.js';
-import { createCloudflareProvider } from '../../core/providers/cloudflare-provider.js';
 import { ReservedIpService } from '../../shared/services/reserved-ip-service.js';
-import { NodePreparationService } from '../../shared/services/node-preparation-service.js';
+import { ClusterPreparationService } from '../../shared/services/cluster-preparation-service.js';
 import type { Cluster, ClusterNode } from '../../shared/types/index.js';
 
 /**
@@ -64,10 +63,7 @@ export class ClusterCreateHaCommand extends BaseCommand<ClusterCreateHaOptions> 
     // Step 4: Assign Reserved IP to droplet using shared service
     const reservedIpInfo = await this.assignReservedIpToDroplet(dropletInfo.id, region);
     
-    // Step 5: Prepare first node infrastructure (Docker + Caddy + keepalived)
-    await this.prepareFirstNode(dropletInfo, baseDomain, name, region, reservedIpInfo);
-    
-    // Step 6: Save cluster state
+    // Step 5: Save cluster state first (needed for full preparation)
     const cluster: Cluster = {
       name,
       baseDomain,
@@ -94,8 +90,8 @@ export class ClusterCreateHaCommand extends BaseCommand<ClusterCreateHaOptions> 
       publicIp: dropletInfo.ip,
       privateIp: undefined, // Will be populated when VPC networking is set up
       role: 'active',
-      priority: 150, // High priority for first node
-      status: 'provisioning',
+      priority: 200, // High priority for first node
+      status: 'active', // Will be set to active after successful preparation
       createdAt: Helpers.generateTimestamp(),
     };
 
@@ -104,18 +100,26 @@ export class ClusterCreateHaCommand extends BaseCommand<ClusterCreateHaOptions> 
       `save cluster node ${firstNodeId} to state`
     );
 
+    // Step 7: Prepare entire cluster infrastructure (all-in-one)
+    const clusterPreparationService = new ClusterPreparationService(this.logger);
+    await clusterPreparationService.prepareClusterNodes(cluster, [clusterNode], { 
+      dryRun: this.dryRun 
+    });
+
     // Success summary
-    this.logger.info(`✅ HA cluster ${name} created successfully`);
+    this.logger.info(`\\n🎉 HA cluster ${name} created and fully prepared!`);
     this.logger.info(`   Reserved IP: ${reservedIpInfo.ip}`);
-    this.logger.info(`   First node: ${firstNodeId} (${dropletInfo.ip})`);
+    this.logger.info(`   Active node: ${firstNodeId} (${dropletInfo.ip})`);
     this.logger.info(`   Base domain: ${baseDomain}`);
     this.logger.info(`   Region: ${region}`);
-    this.logger.info(`   VPC: ${vpcInfo.id}`);
+    this.logger.info(`   Infrastructure: Docker + HAProxy + Caddy + keepalived ✅`);
+    this.logger.info('');
+    this.logger.info('🚀 Your cluster is ready for deployments!');
     this.logger.info('');
     this.logger.info('Next steps:');
-    this.logger.info(`   1. Configure DNS: Point your domain records to ${reservedIpInfo.ip}`);
-    this.logger.info(`   2. Deploy services: dynia cluster deployment create --name ${name} --placeholder`);
-    this.logger.info(`   3. Add more nodes: dynia cluster node add --name ${name}`);
+    this.logger.info(`   1. Deploy test service: dynia cluster deployment create --name ${name} --placeholder`);
+    this.logger.info(`   2. Add more nodes for HA: dynia cluster node add --name ${name} --count 2`);
+    this.logger.info(`   3. Check cluster health: dynia cluster repair-ha ${name} --check-only`);
   }
 
   /**
@@ -162,61 +166,6 @@ export class ClusterCreateHaCommand extends BaseCommand<ClusterCreateHaOptions> 
     return reservedIpInfo;
   }
 
-  /**
-   * Prepare first cluster node infrastructure
-   */
-  private async prepareFirstNode(
-    dropletInfo: { id: string; name: string; ip: string },
-    baseDomain: string,
-    clusterName: string,
-    region: string,
-    reservedIpInfo: { id: string; ip: string }
-  ): Promise<void> {
-    this.logger.info('Preparing first node infrastructure...');
-    
-    if (this.dryRun) {
-      this.logDryRun(`prepare first node ${dropletInfo.name} with Docker + Caddy + keepalived (single-node mode)`);
-      return;
-    }
-
-    const preparationService = new NodePreparationService(this.logger);
-
-    // Prepare node with single-node keepalived configuration
-    await preparationService.prepareNode({
-      nodeIp: dropletInfo.ip,
-      nodeName: dropletInfo.name,
-      baseDomain: baseDomain,
-      cluster: {
-        name: clusterName,
-        region: region,
-        reservedIp: reservedIpInfo.ip,
-        reservedIpId: reservedIpInfo.id,
-      },
-      keepalived: {
-        priority: 200, // Single node gets highest priority
-        role: 'active',
-        allNodes: [{ // Single node array
-          twoWordId: dropletInfo.name,
-          dropletId: dropletInfo.id,
-          publicIp: dropletInfo.ip,
-          role: 'active',
-          status: 'active',
-          priority: 200,
-          clusterId: clusterName,
-          hostname: dropletInfo.name,
-          createdAt: Helpers.generateTimestamp(),
-        }],
-      },
-    });
-
-    // Test node readiness
-    const isReady = await preparationService.testNodeReadiness(dropletInfo.ip, dropletInfo.name);
-    if (!isReady) {
-      throw new Error(`First node preparation completed but readiness tests failed`);
-    }
-
-    this.logger.info(`✅ First node ${dropletInfo.name} prepared successfully`);
-  }
 
   /**
    * Create VPC for cluster private networking
