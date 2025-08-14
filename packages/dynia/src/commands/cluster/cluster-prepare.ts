@@ -45,8 +45,8 @@ export class ClusterPrepareCommand extends BaseCommand<ClusterPrepareOptions> {
     if (!force) {
       // Check which nodes need repair
       this.logger.info('🔍 Analyzing cluster health...');
-      const preparationStatus = await clusterPreparationService.checkNodePreparationStatus(allNodes);
-      const unhealthyNodes = preparationStatus.filter(s => !s.prepared);
+      const clusterHealth = await clusterPreparationService.checkClusterHealth(cluster, allNodes);
+      const unhealthyNodes = clusterHealth.nodeStatuses.filter(s => !s.prepared);
       
       if (unhealthyNodes.length === 0) {
         this.logger.info('✅ All nodes are healthy and properly configured.');

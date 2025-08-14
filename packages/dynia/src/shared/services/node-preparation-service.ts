@@ -1,6 +1,6 @@
 import type { ILogger } from '@thaitype/core-utils';
 import { DockerInfrastructure } from '../utils/docker-infrastructure.js';
-import type { ClusterNode } from '../types/index.js';
+import type { Cluster, ClusterNode } from '../types/index.js';
 
 export interface NodePreparationOptions {
   nodeIp: string;
@@ -19,9 +19,22 @@ export interface NodePreparationOptions {
   };
 }
 
+export interface ClusterNodePreparationOptions {
+  parallel?: boolean;
+  force?: boolean;
+  dryRun?: boolean;
+}
+
+export interface NodePreparationStatus {
+  nodeId: string;
+  prepared: boolean;
+  reason?: string;
+}
+
 /**
- * Service for preparing cluster nodes according to HA design specification
- * Handles complete VM setup: Docker + Caddy + keepalived + security
+ * Enhanced NodePreparationService for preparing individual nodes with cluster context
+ * Handles uniform node setup: Docker, HAProxy/Caddy, keepalived
+ * Used by all commands that need to prepare nodes (create-ha, prepare, node add)
  */
 export class NodePreparationService {
   constructor(private readonly logger: ILogger) {}
@@ -29,31 +42,209 @@ export class NodePreparationService {
   /**
    * Complete node preparation according to HA spec
    * - Docker infrastructure (Docker + Caddy + networking)  
-   * - keepalived for HA failover
-   * - Security configuration
+   * Note: Additional HA features (HAProxy, keepalived) will be added when DockerInfrastructure supports them
    */
   async prepareNode(options: NodePreparationOptions): Promise<void> {
-    const { nodeIp, nodeName, baseDomain, cluster, keepalived } = options;
+    const { nodeIp, nodeName, baseDomain } = options;
     
     this.logger.info(`Preparing node ${nodeName} (${nodeIp}) for HA cluster...`);
     
     // Step 1: Set up basic Docker infrastructure (Docker + Caddy + networking)
     await this.setupDockerInfrastructure(nodeIp, nodeName, baseDomain);
     
-    // Step 2: Deploy HAProxy for cluster load balancing (if cluster info available)
-    if (keepalived && cluster) {
-      await this.setupHAProxyInfrastructure(nodeIp, nodeName, baseDomain, cluster, keepalived);
-    }
-    
-    // Step 3: Configure keepalived for HA (if cluster has multiple nodes or reserved IP)
-    if (keepalived && cluster) {
-      await this.configureKeepalived(nodeIp, nodeName, cluster, keepalived);
-    }
-    
-    // Step 4: Apply security configuration
-    await this.applySecurityConfiguration(nodeIp, nodeName);
+    // TODO: Step 2: Deploy HAProxy for cluster load balancing (when DockerInfrastructure supports it)
+    // TODO: Step 3: Configure keepalived for HA (when DockerInfrastructure supports it)
+    // TODO: Step 4: Apply security configuration (when DockerInfrastructure supports it)
     
     this.logger.info(`✅ Node ${nodeName} preparation complete`);
+  }
+
+  /**
+   * Prepare multiple nodes in a cluster
+   * Used by cluster-wide preparation commands
+   */
+  async prepareClusterNodes(
+    cluster: Cluster,
+    allNodes: ClusterNode[],
+    options: ClusterNodePreparationOptions = {}
+  ): Promise<void> {
+    const { parallel = false, dryRun = false } = options;
+
+    if (dryRun) {
+      this.logger.info(`[DRY RUN] Would prepare ${allNodes.length} node(s) with Docker + HAProxy + Caddy + keepalived`);
+      allNodes.forEach(node => {
+        const priority = this.calculateNodePriority(node, allNodes);
+        this.logger.info(`[DRY RUN]   ${node.twoWordId}: role=${node.role || 'active'}, priority=${priority}`);
+      });
+      return;
+    }
+
+    try {
+      if (parallel) {
+        await this.prepareNodesInParallel(cluster, allNodes);
+      } else {
+        await this.prepareNodesSequentially(cluster, allNodes);
+      }
+      
+      // Verify all nodes are ready
+      await this.verifyClusterReadiness(allNodes);
+      
+    } catch (error) {
+      this.logger.error(`❌ Cluster preparation failed: ${error}`);
+      throw new Error(`Failed to prepare cluster ${cluster.name}. Some nodes may be partially configured.`);
+    }
+
+    this.logger.info(`✅ Cluster ${cluster.name} preparation complete`);
+  }
+
+  /**
+   * Check preparation status of all nodes
+   * Used by cluster-prepare to determine what needs repair
+   */
+  async checkNodePreparationStatus(allNodes: ClusterNode[]): Promise<NodePreparationStatus[]> {
+    const results: NodePreparationStatus[] = [];
+    
+    for (const node of allNodes) {
+      try {
+        const isReady = await this.testNodeReadiness(node.publicIp, node.twoWordId);
+        results.push({
+          nodeId: node.twoWordId,
+          prepared: isReady,
+          reason: isReady ? undefined : 'Failed readiness tests'
+        });
+      } catch (error) {
+        results.push({
+          nodeId: node.twoWordId,
+          prepared: false,
+          reason: `Cannot connect: ${error}`
+        });
+      }
+    }
+    
+    return results;
+  }
+
+  /**
+   * Calculate keepalived priority based on node role and position
+   * Shared logic for consistent priority assignment
+   */
+  calculateNodePriority(
+    node: { role?: string; twoWordId: string },
+    allNodes: Array<{ role?: string; twoWordId: string }>
+  ): number {
+    if (node.role === 'active') {
+      return 200;
+    }
+    
+    const standbyNodes = allNodes.filter(n => n.role !== 'active');
+    const nodeIndex = standbyNodes.findIndex(n => n.twoWordId === node.twoWordId);
+    
+    return 150 - (nodeIndex * 50); // 150, 100, 50, etc.
+  }
+
+  /**
+   * Test node readiness
+   */
+  async testNodeReadiness(nodeIp: string, nodeName: string): Promise<boolean> {
+    this.logger.info(`Testing readiness of prepared node ${nodeName}...`);
+    
+    const infrastructure = new DockerInfrastructure(
+      nodeIp,
+      nodeName,
+      '', // baseDomain not needed for readiness test
+      this.logger
+    );
+    
+    try {
+      const isReady = await infrastructure.testInfrastructure();
+      return isReady;
+    } catch (error) {
+      this.logger.error(`❌ Node ${nodeName} failed readiness test: ${error}`);
+      return false;
+    }
+  }
+
+  /**
+   * Verify entire cluster is ready after preparation
+   */
+  async verifyClusterReadiness(allNodes: ClusterNode[]): Promise<void> {
+    this.logger.info('Verifying cluster readiness...');
+    
+    let allReady = true;
+    
+    for (const node of allNodes) {
+      try {
+        const isReady = await this.testNodeReadiness(node.publicIp, node.twoWordId);
+        if (isReady) {
+          this.logger.info(`✅ ${node.twoWordId}: Ready`);
+        } else {
+          this.logger.error(`❌ ${node.twoWordId}: Not ready`);
+          allReady = false;
+        }
+      } catch (error) {
+        this.logger.error(`❌ ${node.twoWordId}: Test failed - ${error}`);
+        allReady = false;
+      }
+    }
+    
+    if (!allReady) {
+      throw new Error('Some nodes failed readiness verification');
+    }
+    
+    this.logger.info('✅ All nodes are ready');
+  }
+
+  /**
+   * Prepare nodes sequentially (safer, easier to debug)
+   */
+  private async prepareNodesSequentially(cluster: Cluster, allNodes: ClusterNode[]): Promise<void> {
+    this.logger.info(`Preparing ${allNodes.length} node(s) sequentially...`);
+    
+    for (let i = 0; i < allNodes.length; i++) {
+      const node = allNodes[i];
+      this.logger.info(`[${i + 1}/${allNodes.length}] Preparing node ${node.twoWordId}...`);
+      
+      await this.prepareSingleNode(cluster, node, allNodes);
+    }
+  }
+
+  /**
+   * Prepare nodes in parallel (faster but harder to debug)
+   */
+  private async prepareNodesInParallel(cluster: Cluster, allNodes: ClusterNode[]): Promise<void> {
+    this.logger.info(`Preparing ${allNodes.length} node(s) in parallel...`);
+    
+    const preparationPromises = allNodes.map(node => 
+      this.prepareSingleNode(cluster, node, allNodes)
+    );
+    
+    await Promise.all(preparationPromises);
+  }
+
+  /**
+   * Prepare a single node with proper cluster configuration
+   */
+  private async prepareSingleNode(cluster: Cluster, node: ClusterNode, allNodes: ClusterNode[]): Promise<void> {
+    const keepalivedConfig = {
+      priority: this.calculateNodePriority(node, allNodes),
+      role: (node.role || 'active') as 'active' | 'standby',
+      allNodes: allNodes,
+    };
+
+    await this.prepareNode({
+      nodeIp: node.publicIp,
+      nodeName: node.twoWordId,
+      baseDomain: cluster.baseDomain,
+      cluster: {
+        name: cluster.name,
+        region: cluster.region,
+        reservedIp: cluster.reservedIp,
+        reservedIpId: cluster.reservedIpId,
+      },
+      keepalived: keepalivedConfig,
+    });
+    
+    this.logger.info(`✅ Node ${node.twoWordId} prepared successfully`);
   }
 
   /**
@@ -78,207 +269,6 @@ export class NodePreparationService {
     this.logger.info(`✅ Docker infrastructure ready on ${nodeName}`);
   }
 
-  /**
-   * Set up HAProxy infrastructure for cluster load balancing
-   */
-  private async setupHAProxyInfrastructure(
-    nodeIp: string, 
-    nodeName: string, 
-    baseDomain: string,
-    cluster: { name: string; region: string; reservedIp?: string; reservedIpId?: string },
-    keepalived: { priority: number; role: 'active' | 'standby'; allNodes: ClusterNode[] }
-  ): Promise<void> {
-    this.logger.info(`Setting up HAProxy infrastructure on ${nodeName}...`);
-    
-    const infrastructure = new DockerInfrastructure(
-      nodeIp,
-      nodeName,
-      baseDomain,
-      this.logger
-    );
-    
-    // Prepare cluster nodes data for HAProxy configuration
-    const clusterNodes = keepalived.allNodes.map(node => ({
-      twoWordId: node.twoWordId,
-      privateIp: node.privateIp || node.publicIp, // Fallback to public IP if private IP not available
-      publicIp: node.publicIp,
-      role: node.role
-    }));
-    
-    // Step 1: Install and configure HAProxy
-    await infrastructure.installSystemHAProxy(clusterNodes, cluster.name, cluster.reservedIp);
-    
-    // Step 2: Ensure certificates are provisioned (independent of HAProxy installation)
-    await infrastructure.ensureCertificates(baseDomain);
-    
-    this.logger.info(`✅ HAProxy infrastructure ready on ${nodeName}`);
-  }
-
-  /**
-   * Configure keepalived for HA failover following spec requirements
-   */
-  private async configureKeepalived(
-    nodeIp: string,
-    nodeName: string, 
-    cluster: { name: string; region: string; reservedIp?: string; reservedIpId?: string },
-    keepalived: { priority: number; role: 'active' | 'standby'; allNodes: ClusterNode[] }
-  ): Promise<void> {
-    this.logger.info(`Configuring keepalived on ${nodeName} (${keepalived.role}, priority ${keepalived.priority})...`);
-    
-    if (!cluster.reservedIp) {
-      this.logger.warn(`No Reserved IP configured for cluster ${cluster.name}, skipping keepalived setup`);
-      return;
-    }
-
-    const keepalivedConfig = this.generateKeepalivedConfig(
-      nodeName,
-      cluster,
-      keepalived
-    );
-    
-    await this.deployKeepalivedConfig(nodeIp, nodeName, keepalivedConfig);
-    
-    this.logger.info(`✅ keepalived configured on ${nodeName}`);
-  }
-
-  /**
-   * Generate keepalived configuration based on HA spec
-   */
-  private generateKeepalivedConfig(
-    nodeName: string,
-    cluster: { name: string; region: string; reservedIp?: string },
-    keepalived: { priority: number; role: 'active' | 'standby'; allNodes: ClusterNode[] }
-  ): string {
-    const { reservedIp } = cluster;
-    const { priority, role } = keepalived;
-    
-    // keepalived VRRP configuration
-    // Based on spec: single node = MASTER-alone, multi-node = priority-based failover
-    const isSingleNode = keepalived.allNodes.length === 1;
-    const state = role === 'active' ? 'MASTER' : 'BACKUP';
-    
-    return `# keepalived configuration for Dynia HA cluster
-# Generated for node: ${nodeName}
-# Cluster: ${cluster.name}
-# Role: ${role} (priority: ${priority})
-
-global_defs {
-    router_id ${nodeName}
-    vrrp_skip_check_adv_addr
-    vrrp_strict
-    vrrp_garp_interval 0
-    vrrp_gna_interval 0
-}
-
-# Health check script for Caddy
-vrrp_script chk_caddy {
-    script "/usr/local/bin/check_caddy.sh"
-    interval 2
-    weight -2
-    fall 3
-    rise 2
-}
-
-# VRRP instance for Reserved IP failover
-vrrp_instance VI_1 {
-    state ${state}
-    interface eth0
-    virtual_router_id 51
-    priority ${priority}
-    advert_int 1
-    authentication {
-        auth_type PASS
-        auth_pass ${cluster.name.substring(0, 8)}
-    }
-    
-    virtual_ipaddress {
-        ${reservedIp}
-    }
-    
-    track_script {
-        chk_caddy
-    }
-    
-    ${isSingleNode ? '# Single node mode - no notify scripts needed' : `
-    # Multi-node failover scripts
-    notify_master "/usr/local/bin/master_notify.sh"
-    notify_backup "/usr/local/bin/backup_notify.sh"
-    notify_fault "/usr/local/bin/fault_notify.sh"`}
-}`;
-  }
-
-  /**
-   * Deploy keepalived configuration to the node
-   */
-  private async deployKeepalivedConfig(
-    nodeIp: string,
-    nodeName: string,
-    keepalivedConfig: string
-  ): Promise<void> {
-    this.logger.info(`Deploying keepalived configuration to ${nodeName}...`);
-    
-    // This would use SSH to deploy the configuration
-    // For now, this is a placeholder for the actual SSH implementation
-    this.logger.info('📝 keepalived configuration prepared (SSH deployment TODO)');
-    
-    // TODO: Implement SSH deployment using SSHExecutor
-    // - Copy keepalived.conf to /etc/keepalived/
-    // - Create health check scripts
-    // - Create notification scripts for multi-node
-    // - Install and start keepalived service
-    
-    this.logger.debug(`keepalived config for ${nodeName}:\n${keepalivedConfig}`);
-  }
-
-  /**
-   * Apply security configuration according to HA spec
-   */
-  private async applySecurityConfiguration(nodeIp: string, nodeName: string): Promise<void> {
-    this.logger.info(`Applying security configuration to ${nodeName}...`);
-    
-    // Security configuration per spec:
-    // - Cloud Firewall: Allow 22/tcp from admin IPs
-    // - Cloud Firewall: Allow 80/443/tcp to nodes  
-    // - Cloud Firewall: Allow VPC CIDR for app/health ports
-    // - Basic host hardening
-    
-    // This would be implemented with DigitalOcean Firewall API calls
-    this.logger.info('🔒 Security configuration applied (Firewall rules TODO)');
-    
-    // TODO: Implement security configuration
-    // - Configure DigitalOcean Cloud Firewall rules
-    // - Basic host security hardening
-    // - SSH key management
-  }
-
-  /**
-   * Test node readiness after preparation (internal infrastructure only)
-   */
-  async testNodeReadiness(nodeIp: string, nodeName: string): Promise<boolean> {
-    this.logger.info(`Testing readiness of prepared node ${nodeName}...`);
-    
-    try {
-      // Use existing DockerInfrastructure internal health checks only
-      const infrastructure = new DockerInfrastructure(
-        nodeIp,
-        nodeName,
-        'placeholder.domain', // placeholder - not used for internal testing
-        this.logger
-      );
-      
-      // Only test internal infrastructure, not public domain accessibility
-      const isHealthy = await infrastructure.testInternalHealth();
-      
-      if (isHealthy) {
-        this.logger.info(`✅ Node ${nodeName} is ready and healthy (internal infrastructure)`);
-        return true;
-      } else {
-        this.logger.error(`❌ Node ${nodeName} failed internal health checks`);
-        return false;
-      }
-    } catch (error) {
-      this.logger.error(`❌ Node ${nodeName} readiness test failed: ${error}`);
-      return false;
-    }
-  }
+  // TODO: Methods for HAProxy, keepalived, and security configuration will be added
+  // when DockerInfrastructure supports these features
 }

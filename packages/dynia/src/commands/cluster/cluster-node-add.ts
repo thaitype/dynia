@@ -3,7 +3,7 @@ import { ValidationUtils } from '../../shared/utils/validation.js';
 import { Helpers } from '../../shared/utils/helpers.js';
 import { TwoWordNameGenerator } from '../../shared/utils/two-word-generator.js';
 import { createDigitalOceanProvider } from '../../core/providers/digitalocean-provider.js';
-import { NodePreparationService } from '../../shared/services/node-preparation-service.js';
+import { ClusterPreparationService } from '../../shared/services/cluster-preparation-service.js';
 import type { ClusterNode } from '../../shared/types/index.js';
 
 export interface ClusterNodeAddOptions {
@@ -144,7 +144,7 @@ export class ClusterNodeAddCommand extends BaseCommand<ClusterNodeAddOptions> {
     // Wait for droplet to become active
     const activeDroplet = await doProvider.waitForDropletActive(droplet.id);
 
-    // Set up Docker infrastructure on new node
+    // Set up complete node infrastructure and add to cluster
     await this.setupNodeInfrastructure(activeDroplet.ip, nodeId, clusterName);
 
     // Create cluster node object
@@ -165,7 +165,7 @@ export class ClusterNodeAddCommand extends BaseCommand<ClusterNodeAddOptions> {
   }
 
   /**
-   * Set up complete node infrastructure using NodePreparationService
+   * Set up complete node infrastructure using ClusterPreparationService
    */
   private async setupNodeInfrastructure(nodeIp: string, nodeId: string, clusterName: string): Promise<void> {
     this.logger.info(`Setting up complete infrastructure on node ${nodeId}...`);
@@ -175,56 +175,31 @@ export class ClusterNodeAddCommand extends BaseCommand<ClusterNodeAddOptions> {
       return;
     }
 
-    // Get cluster and all nodes for keepalived configuration
+    // Get cluster and existing nodes
     const clusterDetails = await this.stateManager.getCluster(clusterName);
-    const allNodes = await this.stateManager.getClusterNodes(clusterName);
+    const existingNodes = await this.stateManager.getClusterNodes(clusterName);
     
     if (!clusterDetails) {
       throw new Error(`Cluster ${clusterName} not found during node preparation`);
     }
 
-    // Calculate priority for this new node (standby nodes get decreasing priority)
-    const standbyNodes = allNodes.filter(n => n.role !== 'active');
-    const priority = 150 - (standbyNodes.length * 50); // 150, 100, 50, etc.
-
-    const preparationService = new NodePreparationService(this.logger);
-
-    // Create temporary node object for keepalived configuration
-    const currentNode = {
+    // Create new node object
+    const newNode: ClusterNode = {
       twoWordId: nodeId,
-      dropletId: 'temp', // We'll update this later
+      dropletId: 'temp', // Will be updated after creation
       publicIp: nodeIp,
-      role: 'standby' as const,
-      status: 'active' as const,
-      priority,
+      privateIp: undefined,
+      role: 'standby',
+      priority: 0, // Will be calculated by ClusterPreparationService
       clusterId: clusterName,
       hostname: `${clusterName}-${nodeId}`,
+      status: 'active',
       createdAt: Helpers.generateTimestamp(),
     };
 
-    // Prepare node with proper keepalived configuration
-    await preparationService.prepareNode({
-      nodeIp: nodeIp,
-      nodeName: nodeId,
-      baseDomain: clusterDetails.baseDomain,
-      cluster: {
-        name: clusterDetails.name,
-        region: clusterDetails.region,
-        reservedIp: clusterDetails.reservedIp,
-        reservedIpId: clusterDetails.reservedIpId,
-      },
-      keepalived: {
-        priority,
-        role: 'standby',
-        allNodes: [...allNodes, currentNode], // Include this new node
-      },
-    });
-
-    // Test node readiness
-    const isReady = await preparationService.testNodeReadiness(nodeIp, nodeId);
-    if (!isReady) {
-      throw new Error(`Node preparation completed but readiness tests failed`);
-    }
+    // Use ClusterPreparationService to add node to cluster
+    const clusterPreparationService = new ClusterPreparationService(this.logger);
+    await clusterPreparationService.addNodeToCluster(clusterDetails, newNode, existingNodes);
 
     this.logger.info(`✅ Complete infrastructure setup completed on node ${nodeId}`);
   }
