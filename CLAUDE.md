@@ -34,7 +34,7 @@ Dynia is a lightweight, CLI-driven orchestrator for small clusters that provisio
 ### Cluster Testing Commands
 - `dynia cluster deployment create --placeholder <cluster>` - Deploy test service to ALL cluster nodes
 - `dynia cluster node list <cluster>` - Verify cluster configuration and node status
-- `curl https://domain.com/dynia-health` - Test load balancing with multiple requests
+- `curl https://domain.com/` - Test application-level load balancing (shows serving node)
 - `dynia cluster config inspect <cluster> --routing-summary` - Verify HAProxy backend configurations
 
 ### Debugging Commands
@@ -172,13 +172,19 @@ await this.deployServiceToNode(activeNode, domain, placeholder, compose, healthP
 # Test service deployment to all nodes
 pnpm --filter @examples/basic dynia cluster deployment create --placeholder <cluster-name>
 
-# Verify load balancing (should show different nodes)
+# Verify load balancing at APPLICATION level (should show different nodes)
 for i in {1..4}; do 
   echo "Request $i:"; 
-  curl -s https://your-domain.com/dynia-health | jq -r .node
+  curl -s https://your-domain.com/ | grep -o "node: [^)]*"
 done
 
-# Expected: Alternating node names (honor-viper, crystal-panda, etc.)
+# Expected: Alternating node names
+# Request 1: node: honor-viper
+# Request 2: node: crystal-panda  
+# Request 3: node: honor-viper
+# Request 4: node: crystal-panda
+
+# NOTE: Test root path (/) not /dynia-health (HAProxy infrastructure level)
 ```
 
 ### Configuration Management

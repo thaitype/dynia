@@ -449,117 +449,33 @@ echo "   Docker Compose version: $(docker compose version)"
 }`,
 
       'placeholder-index.html': `<!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dynia Node - {{NODE_NAME}}</title>
+    <title>Dynia Placeholder</title>
     <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            margin: 0;
-            padding: 0;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .container {
-            text-align: center;
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            padding: 3rem;
-            max-width: 600px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
+        body { 
+            font-family: Arial, sans-serif; 
+            text-align: center; 
+            margin-top: 50px;
+            background-color: #f5f5f5;
         }
         h1 {
-            font-size: 2.5rem;
-            margin-bottom: 1rem;
-            font-weight: 300;
+            color: #333;
+            font-size: 2rem;
         }
-        .node-id {
-            font-size: 3rem;
+        .node-info {
+            color: #666;
+            font-size: 1.2rem;
             font-weight: bold;
-            background: linear-gradient(45deg, #ff6b6b, #ffd93d);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            margin: 1.5rem 0;
-            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
-            letter-spacing: 2px;
-        }
-        .domain-info {
-            font-size: 1.1rem;
-            opacity: 0.8;
-            margin-bottom: 2rem;
-        }
-        .status {
-            background: rgba(34, 197, 94, 0.2);
-            border: 1px solid rgba(34, 197, 94, 0.4);
-            border-radius: 10px;
-            padding: 1rem;
-            margin: 1rem 0;
-        }
-        .load-balancer-info {
-            background: rgba(59, 130, 246, 0.2);
-            border: 1px solid rgba(59, 130, 246, 0.4);
-            border-radius: 10px;
-            padding: 1.5rem;
-            margin: 1.5rem 0;
-            font-size: 1.1rem;
-        }
-        .request-info {
-            background: rgba(168, 85, 247, 0.2);
-            border: 1px solid rgba(168, 85, 247, 0.4);
-            border-radius: 10px;
-            padding: 1rem;
-            margin: 1rem 0;
-            font-size: 0.9rem;
-        }
-        .timestamp {
-            font-size: 0.9rem;
-            opacity: 0.7;
-            margin-top: 2rem;
-        }
-        .logo {
-            font-size: 4rem;
-            margin-bottom: 1rem;
+            margin-top: 20px;
         }
     </style>
-    <script>
-        // Update request timestamp on each page load
-        window.onload = function() {
-            const requestTime = document.getElementById('request-time');
-            if (requestTime) {
-                requestTime.textContent = new Date().toISOString();
-            }
-        }
-    </script>
 </head>
 <body>
-    <div class="container">
-        <div class="logo">🚀</div>
-        <h1>Dynia Cluster Node</h1>
-        <div class="node-id">{{NODE_NAME}}</div>
-        <div class="domain-info">{{DOMAIN}}</div>
-        <div class="load-balancer-info">
-            🔄 <strong>HAProxy Load Balancing Test</strong><br>
-            This request was served by node: <strong>{{NODE_NAME}}</strong>
-        </div>
-        <div class="request-info">
-            📍 Request served at: <span id="request-time">Loading...</span><br>
-            🎯 Node ID: <strong>{{NODE_NAME}}</strong>
-        </div>
-        <div class="status">
-            ✅ Node is ready and load balancing active
-        </div>
-        <div class="timestamp">
-            Node created: {{CREATED_AT}}
-        </div>
-    </div>
+    <h1>No applications deployed. Ready for cluster deployments.</h1>
+    <p class="node-info">(Served from node: {{NODE_NAME}})</p>
 </body>
 </html>`,
 
@@ -1129,66 +1045,35 @@ networks:
     // Create placeholder directories
     await this.ssh.executeCommand('mkdir -p /opt/dynia/services/placeholder');
 
-    // Generate enhanced placeholder HTML
+    // Generate simple placeholder HTML with node identification
     const indexHtml = `<!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dynia Cluster Placeholder - ${domain}</title>
+    <title>Dynia Placeholder</title>
     <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            margin: 0;
-            padding: 0;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+        body { 
+            font-family: Arial, sans-serif; 
+            text-align: center; 
+            margin-top: 50px;
+            background-color: #f5f5f5;
         }
-        .container {
-            text-align: center;
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            padding: 3rem;
-            max-width: 600px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
+        h1 {
+            color: #333;
+            font-size: 2rem;
         }
-        .logo { font-size: 4rem; margin-bottom: 1rem; }
-        .status { color: #50fa7b; font-weight: bold; margin: 1rem 0; }
-        .info { margin: 0.5rem 0; opacity: 0.9; }
-        .divider { border-top: 1px solid rgba(255,255,255,0.3); margin: 2rem 0; }
+        .node-info {
+            color: #666;
+            font-size: 1.2rem;
+            font-weight: bold;
+            margin-top: 20px;
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="logo">🚀</div>
-        <h1>Dynia Cluster Placeholder</h1>
-        <div class="status">✅ Cluster is healthy and running</div>
-        
-        <div class="divider"></div>
-        
-        <div class="info"><strong>Domain:</strong> ${domain}</div>
-        <div class="info"><strong>Node:</strong> ${this.nodeName}</div>
-        <div class="info"><strong>Cluster:</strong> ${this.nodeName.split('-')[0] || 'unknown'}</div>
-        <div class="info"><strong>Deployed:</strong> ${new Date().toISOString()}</div>
-        
-        <div class="divider"></div>
-        
-        <p>This placeholder service confirms that:</p>
-        <ul style="text-align: left; max-width: 400px; margin: 0 auto;">
-            <li>✅ DNS is correctly configured</li>
-            <li>✅ HTTPS/TLS certificates are working</li>
-            <li>✅ Reverse proxy routing is active</li>
-            <li>✅ Docker containers are healthy</li>
-        </ul>
-        
-        <div class="divider"></div>
-        <p><small>Ready to deploy your real application!</small></p>
-    </div>
+    <h1>No applications deployed. Ready for cluster deployments.</h1>
+    <p class="node-info">(Served from node: ${this.nodeName})</p>
 </body>
 </html>`;
 
@@ -1383,8 +1268,8 @@ ${clusterRoutes.map(route => {
       // Write complete Caddyfile (replacing any existing configuration)
       await this.ssh.copyContent(completeCaddyfile, caddyfilePath);
       
-      // Reload Caddy configuration
-      await this.ssh.executeCommand('docker exec dynia-caddy caddy reload --config /etc/caddy/Caddyfile');
+      // Restart Caddy container to pick up new configuration (more reliable than reload)
+      await this.ssh.executeCommand('cd /opt/dynia/caddy && docker compose restart caddy');
       
       this.logger.info(`✅ Complete Caddyfile generated with ${clusterRoutes.length} route(s)`);
       
