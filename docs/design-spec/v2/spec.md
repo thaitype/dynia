@@ -25,9 +25,9 @@ Key changes from v1:
 
 ---
 
-## **3. Structure**
+## **3. Structure & Design Rules**
 
-Use clean code principles to separate concerns:
+Use clean code principles to separate concerns, write testable code, keep test only logic without side effects (avoid using mocks)
 
 ```
 /commands     # Each CLI command (parse args → call service)
