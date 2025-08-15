@@ -27,6 +27,8 @@ Key changes from v1:
 
 ## **3. Structure**
 
+Use clean code principles to separate concerns:
+
 ```
 /commands     # Each CLI command (parse args → call service)
 /services     # Core orchestration logic, state mgmt, config render, sync
@@ -44,7 +46,9 @@ Key changes from v1:
 * **Service** → Core orchestration logic, uses Providers, updates state, renders config.
 * **Provider** → Abstraction for infrastructure operations (DigitalOcean, Cloudflare, SSH, Local FS, etc.).
 * **State** → JSON store of clusters, nodes, deployments, routes.
-* **Template Rendering** → From `/templates` + `state` → `deploy-config/`.
+* **Template Rendering** → From `/templates` + `state` → `deploy-config/`. template use handlebars for dynamic values, e.g. node IPs, service names. (Also support list or object iteration in templates for dynamic configs.)
+
+Note: also use state version, and use zod schema for validation for state and deploy-config metadata.
 
 ---
 
